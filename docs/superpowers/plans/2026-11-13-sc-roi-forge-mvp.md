@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship a vision-only ROI calibration workbench: import screenshot, set aspect ratio, draw/edit boxes on Konva (optional cloud AI drafts), export standard JSON with normalized + 1K/2K/4K pixel ROIs; runnable in browser, Docker, and a Tauri EXE skeleton.
+**Goal:** Ship a vision-only ROI calibration workbench: import screenshot, lock aspect (auto-detect or manual), draw/edit boxes on Konva (optional cloud AI drafts), export standard JSON where 1K/2K/4K are proportional scales of that same aspect; runnable in browser, Docker, and a Tauri EXE skeleton.
 
 **Architecture:** Shared resolution/ROI math in `packages/schema` (TypeScript source of truth for web; Python mirror in API). React+Vite+Konva SPA talks to FastAPI for export helpers and optional `suggest-rois`. Tauri loads the web UI and starts a local FastAPI sidecar. No game memory or injection code paths.
 
@@ -11,7 +11,9 @@
 ## Global Constraints
 
 - Compliance: vision-only — images in, calibration JSON out; never process IDs, memory, hooks, or client patching
-- Aspect resolution formula: `width = round(height * (A/B))` with heights 1080 / 1440 / 2160 for 1K / 2K / 4K
+- Aspect is locked per pack (16:9 / 16:10 / 21:9 / …); different aspects mean different UI layouts — do not cross-convert layouts
+- Within one aspect, 1K/2K/4K are uniform scales only: `width = round(height * (A/B))` with heights 1080 / 1440 / 2160
+- Aspect input: auto-detect from screenshot size, with user preset/custom override
 - `norm` is source of truth; recompute `px` and `resolutions` on every export
 - AI is optional; full manual path must work with no API key
 - Spec: `docs/superpowers/specs/2026-11-13-sc-roi-forge-design.md`
@@ -73,7 +75,8 @@ README.md
 
 **Interfaces:**
 - Produces: `parseAspectRatio(s: string): { a: number; b: number; r: number }`
-- Produces: `tierResolutions(aspect: string): { "1k"|"2k"|"4k": { w: number; h: number } }`
+- Produces: `detectAspectRatio(width: number, height: number, tolerance?: number): string` — snap to presets or reduced `W:H`
+- Produces: `tierResolutions(aspect: string): { "1k"|"2k"|"4k": { w: number; h: number } }` — proportional sizes under locked aspect
 - Produces: `normToPx(norm, width, height): { x,y,w,h }` integers
 - Produces: `buildExportPack({ aspect_ratio, rois }): CalibrationPack`
 
@@ -131,7 +134,7 @@ apps/desktop/src-tauri/target/
 ```typescript
 // packages/schema/tests/aspect.test.ts
 import { describe, it, expect } from "vitest";
-import { tierResolutions, parseAspectRatio } from "../src/aspect";
+import { tierResolutions, parseAspectRatio, detectAspectRatio } from "../src/aspect";
 
 describe("tierResolutions", () => {
   it("16:9 matches FHD/QHD/UHD", () => {
@@ -156,7 +159,21 @@ describe("parseAspectRatio", () => {
     expect(parseAspectRatio("16:10").r).toBeCloseTo(1.6);
   });
 });
+
+describe("detectAspectRatio", () => {
+  it("snaps 1920x1080 to 16:9", () => {
+    expect(detectAspectRatio(1920, 1080)).toBe("16:9");
+  });
+  it("snaps 2520x1080 to 21:9", () => {
+    expect(detectAspectRatio(2520, 1080)).toBe("21:9");
+  });
+  it("snaps 1920x1200 to 16:10", () => {
+    expect(detectAspectRatio(1920, 1200)).toBe("16:10");
+  });
+});
 ```
+
+Update the import line at the top of `aspect.test.ts` to also import `detectAspectRatio`. Common marketing sizes like 2560×1080 are ~1.6% off true 21:9 — snap with default 1% tolerance will not force them; user can manually select `21:9`.
 
 ```typescript
 // packages/schema/tests/exportPack.test.ts
@@ -227,6 +244,37 @@ export function parseAspectRatio(s: string): { a: number; b: number; r: number }
   const b = Number(m[2]);
   if (a <= 0 || b <= 0) throw new Error(`Invalid aspect ratio: ${s}`);
   return { a, b, r: a / b };
+}
+
+/** Known game/UI design aspects — layouts differ across these; do not mix. */
+export const ASPECT_PRESETS = ["16:9", "16:10", "21:9", "32:9", "4:3"] as const;
+
+export function detectAspectRatio(
+  width: number,
+  height: number,
+  tolerance = 0.01,
+): string {
+  const r = width / height;
+  let best: string | null = null;
+  let bestErr = Infinity;
+  for (const p of ASPECT_PRESETS) {
+    const { r: pr } = parseAspectRatio(p);
+    const err = Math.abs(r - pr) / pr;
+    if (err < bestErr) {
+      bestErr = err;
+      best = p;
+    }
+  }
+  if (best && bestErr <= tolerance) return best;
+  const g = gcd(Math.round(width), Math.round(height));
+  return `${Math.round(width) / g}:${Math.round(height) / g}`;
+}
+
+function gcd(a: number, b: number): number {
+  a = Math.abs(a);
+  b = Math.abs(b);
+  while (b) [a, b] = [b, a % b];
+  return a || 1;
 }
 
 export function tierResolutions(aspect: string) {
@@ -667,9 +715,10 @@ Keep stage logical size consistent with selected aspect (e.g. base height 720, w
 `App.tsx` responsibilities:
 
 - File input + paste listener → `URL.createObjectURL` → `setImageUrl`
-- Aspect `<select>`: `16:9`, `16:10`, `21:9`, `32:9`
+- On image load: read naturalWidth/Height → `detectAspectRatio(w, h)` → `setAspectRatio` (auto)
+- Aspect UI: preset `<select>` (`16:9`, `16:10`, `21:9`, `32:9`, …) **plus** custom `A:B` text input so the user can override detection; show badge “detected” vs “manual”
 - Buttons: Undo, Redo, Export JSON, optional “Suggest with AI” (wired in Task 4; can be disabled stub)
-- Call `buildExportPack` from `@sc-roi/schema` client-side for export (do not require API for manual path)
+- Call `buildExportPack` from `@sc-roi/schema` client-side for export (do not require API for manual path); pack keeps one locked `aspect_ratio`, with 1K/2K/4K as proportional scales only
 
 ```typescript
 // apps/web/src/export/downloadPack.ts
@@ -971,7 +1020,8 @@ git commit -m "docs: sync README with MVP architecture and quick start"
 |------------------|------|
 | Vision-only compliance | Global + Tasks 4, 7 |
 | Import screenshot / paste | Task 3 |
-| Aspect presets | Task 3 |
+| Aspect lock + auto-detect + manual override | Tasks 1, 3 |
+| Same-aspect proportional 1K/2K/4K | Tasks 1–3 |
 | Konva manual draw + undo | Task 3 |
 | Optional AI drafts | Task 4 |
 | Norm + 1K/2K/4K JSON | Tasks 1–3 |

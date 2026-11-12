@@ -30,11 +30,11 @@ All inputs are images/frames. All outputs are calibration / visualization artifa
 
 ```text
 Import/Paste screenshot
-        → Set aspect ratio (16:9, 16:10, 21:9, 32:9, …)
+        → Lock aspect ratio (auto-detect from image OR user override)
         → Optional cloud AI rough ROI + labels
            OR pure manual draw
         → Konva canvas refine (move, resize, label, undo/redo)
-        → Export standard JSON pack (norm + 1K/2K/4K px)
+        → Export standard JSON pack (same aspect; 1K/2K/4K = uniform scale)
 ```
 
 ### 3.1 Import
@@ -42,10 +42,18 @@ Import/Paste screenshot
 - Open image file (PNG/JPEG/WebP) or paste from clipboard
 - Image becomes the canvas background; no game process access
 
-### 3.2 Aspect ratio
+### 3.2 Aspect ratio (locked per project)
 
-- User declares the intended frame: at least `16:9`, `16:10`, `21:9`, `32:9`
-- Canvas letterboxes/aligns the image to the selected aspect so boxes are not drawn on the wrong framing
+Games usually author HUD/UI for a **fixed aspect** (most often 16:9; also 16:10, 21:9, etc.). Layouts are **not** interchangeable across aspects — a 21:9 calibration must not silently become 16:9.
+
+Therefore each calibration **locks one aspect ratio**:
+
+1. **Auto-detect** from the screenshot pixel size (`width / height`), snap to a known preset when within tolerance (e.g. 16:9, 16:10, 21:9, 32:9), otherwise keep a reduced `W:H` string from the image dimensions.
+2. **Manual override** — user picks a preset or types `A:B` if detection is wrong or they know the intended design aspect.
+
+Within that locked aspect, **1K / 2K / 4K are only resolution tiers of the same framing** — pure uniform scale of the same layout. They do not change UI design; they only change pixel density.
+
+Canvas uses the locked aspect so boxes stay on the correct framing.
 
 ### 3.3 AI path (optional)
 
@@ -66,17 +74,25 @@ Import/Paste screenshot
 
 ## 4. Coordinate and resolution contract
 
-### 4.1 Tier heights (locked)
+### 4.0 Principle
 
-| Tier | Height (px) | 16:9 size |
-|------|-------------|-----------|
+1. **Aspect is fixed** for the pack (`aspect_ratio` field) — matches how the game UI was designed for that shot.
+2. **Normalized ROIs** describe positions on that aspect’s frame (`0..1`).
+3. **1K / 2K / 4K** = same aspect, **equally scaled** pixel grids. Export only multiplies `norm × tier size`; no per-tier layout remix.
+
+### 4.1 Tier heights (locked scale ladder)
+
+| Tier | Height (px) | 16:9 size (reference) |
+|------|-------------|------------------------|
 | 1K   | 1080        | 1920×1080 |
 | 2K   | 1440        | 2560×1440 |
 | 4K   | 2160        | 3840×2160 |
 
-### 4.2 Resolution derivation
+Scale factors between tiers (same aspect): 2K/1K = 1440/1080 = 4/3; 4K/1K = 2160/1080 = 2. Pixel boxes at 2K/4K are the 1K boxes × that factor (with rounding).
 
-For aspect ratio `A:B` (decimal `r = A/B`):
+### 4.2 Resolution derivation (proportional within locked aspect)
+
+For locked aspect `A:B` (decimal `r = A/B`):
 
 ```text
 height_1k = 1080
@@ -85,17 +101,29 @@ height_4k = 2160
 width_tier = round(height_tier * r)
 ```
 
-Examples for `21:9` (`r = 21/9`):
+Examples for `21:9` (`r = 21/9`) — still the **same** ultrawide layout, only scaled:
 
 - 1K → 2520×1080
 - 2K → 3360×1440
 - 4K → 5040×2160
 
+### 4.2.1 Aspect detection helper
+
+```text
+detectAspect(imageWidth, imageHeight) →
+  ratio = imageWidth / imageHeight
+  if near preset (tolerance ~0.5%): return that preset string
+  else: return reduced fraction string from (imageWidth, imageHeight)
+```
+
+User override always wins over detection for the pack’s `aspect_ratio`.
+
 ### 4.3 ROI model
 
-- **Source of truth:** `norm = { x, y, w, h }` each in `[0, 1]` relative to the full frame
+- **Source of truth:** `norm = { x, y, w, h }` each in `[0, 1]` relative to the **locked-aspect** full frame
 - **Derived:** `px[tier] = { x, y, w, h }` integers via  
-  `px = round(norm * dimension)` with clamping so boxes stay inside `[0, width)` / `[0, height)`
+  `px = round(norm * dimension)` with clamping so boxes stay inside `[0, width)` / `[0, height)`  
+  → equivalent to drawing once, then **equally scaling** to 1K / 2K / 4K
 - Metadata per ROI: stable `id`, `label`, `category` (string enums extensible later)
 
 ### 4.4 Export JSON schema (v1.0)
@@ -187,10 +215,10 @@ Forbidden tool ideas: anything touching game memory, hooks, or client files.
 **In:**
 
 - Screenshot import / paste
-- Aspect presets
+- Aspect lock: auto-detect from image + manual preset/custom `A:B` override
 - Konva manual draw + annotate + undo/redo
 - Optional cloud AI rough suggest → canvas
-- Standard JSON import/export (norm + 1K/2K/4K)
+- Standard JSON import/export (norm + proportional 1K/2K/4K under one aspect)
 - Docker + browser deploy path
 - Tauri EXE skeleton (sidecar boots local API)
 
