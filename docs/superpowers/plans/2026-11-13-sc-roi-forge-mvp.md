@@ -6,7 +6,7 @@
 
 **Architecture:** Shared resolution/ROI math in `packages/schema` (TypeScript source of truth for web; Python mirror in API). React+Vite+Konva SPA talks to FastAPI for export helpers and optional `suggest-rois`. Tauri loads the web UI and starts a local FastAPI sidecar. No game memory or injection code paths.
 
-**Tech Stack:** React, Vite, TypeScript, Tailwind, Konva/react-konva, FastAPI, Uvicorn, Pydantic, OpenCV + RapidOCR (optional assist), OpenAI-compatible cloud API, Docker Compose, Tauri 2.
+**Tech Stack:** React, Vite, TypeScript, Tailwind, Konva/react-konva, FastAPI, Uvicorn, Pydantic, **LangGraph** + LangChain (OpenAI-compatible chat), OpenCV + RapidOCR (optional tool), Docker Compose, Tauri 2.
 
 ## Global Constraints
 
@@ -751,31 +751,52 @@ git commit -m "feat(web): Konva canvas with manual ROI draw and JSON export"
 
 ---
 
-### Task 4: Optional cloud AI suggest-rois
+### Task 4: Optional LangGraph agent (`suggest-rois`)
 
 **Files:**
-- Create: `apps/api/src/sc_roi_api/agent.py`
+- Create: `apps/api/src/sc_roi_api/agent/__init__.py`
+- Create: `apps/api/src/sc_roi_api/agent/state.py`
+- Create: `apps/api/src/sc_roi_api/agent/tools.py`
+- Create: `apps/api/src/sc_roi_api/agent/graph.py`
+- Create: `apps/api/src/sc_roi_api/agent/runner.py`
 - Modify: `apps/api/src/sc_roi_api/main.py`
+- Modify: `apps/api/pyproject.toml` (add `langgraph`, `langchain`, `langchain-openai`, `langchain-core`)
 - Create: `apps/api/tests/test_agent_disabled.py`
+- Create: `apps/api/tests/test_agent_validate.py`
 - Modify: `apps/web/src/lib/api.ts`
 - Modify: `apps/web/src/App.tsx`
 - Create: `.env.example`
 
 **Interfaces:**
-- Produces: `POST /v1/agent/suggest-rois` (multipart: `file`, form `prompt`, header `X-API-Key` or form `api_key`)
-- Produces: `{ rois: RoiIn[] }` draft list only — never writes files server-side
-- If `SC_ROI_AGENT_ENABLED=0` or no key → HTTP 400 with clear message
+- Produces: `POST /v1/agent/suggest-rois` → runs compiled LangGraph → `{ rois: RoiIn[] }`
+- Graph tools: `ocr_region`, `propose_rois` only (vision whitelist)
+- If `SC_ROI_AGENT_ENABLED=0` or no key → HTTP 400; graph never invoked
 
-- [ ] **Step 1: Failing test — agent disabled**
+- [ ] **Step 1: Add deps to `pyproject.toml`**
+
+```toml
+dependencies = [
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.30.0",
+  "pydantic>=2.8.0",
+  "python-multipart>=0.0.9",
+  "httpx>=0.27.0",
+  "langgraph>=0.2.0",
+  "langchain>=0.3.0",
+  "langchain-openai>=0.2.0",
+  "langchain-core>=0.3.0",
+]
+```
+
+- [ ] **Step 2: Failing test — agent disabled**
 
 ```python
 # apps/api/tests/test_agent_disabled.py
 import os
-from fastapi.testclient import TestClient
-
 os.environ["SC_ROI_AGENT_ENABLED"] = "0"
 
-from sc_roi_api.main import app  # import after env
+from fastapi.testclient import TestClient
+from sc_roi_api.main import app
 
 client = TestClient(app)
 
@@ -784,121 +805,237 @@ def test_suggest_disabled():
     r = client.post(
         "/v1/agent/suggest-rois",
         files={"file": ("x.png", b"fakepng", "image/png")},
-        data={"prompt": "find hud"},
+        data={"prompt": "find hud", "aspect_ratio": "16:9"},
     )
     assert r.status_code == 400
-    assert "disabled" in r.json()["detail"].lower() or "not enabled" in r.json()["detail"].lower()
+    detail = r.json()["detail"].lower()
+    assert "disabled" in detail or "not enabled" in detail
 ```
 
-- [ ] **Step 2: Implement agent module (OpenAI-compatible, vision-only)**
+- [ ] **Step 3: Implement lightweight LangGraph**
 
 ```python
-# apps/api/src/sc_roi_api/agent.py
+# apps/api/src/sc_roi_api/agent/state.py
+from typing import Annotated, Any, TypedDict
+from langgraph.graph.message import add_messages
+
+
+class AgentState(TypedDict):
+    messages: Annotated[list, add_messages]
+    aspect_ratio: str
+    draft_rois: list[dict[str, Any]]
+```
+
+```python
+# apps/api/src/sc_roi_api/agent/tools.py
+"""Vision-only tools. No process/memory/filesystem beyond the request image."""
 from __future__ import annotations
 
-import json
+from typing import Any, Callable
+
+from langchain_core.tools import tool
+
+
+def build_tools(get_image_bytes: Callable[[], bytes], draft_box: dict[str, list]) -> list:
+    @tool
+    def ocr_region(x: float, y: float, w: float, h: float) -> str:
+        """OCR a normalized crop [0..1] of the uploaded screenshot. Returns plain text."""
+        # MVP: return placeholder or call RapidOCR on crop; never touch game memory
+        _ = get_image_bytes()
+        return f"ocr_stub region=({x:.3f},{y:.3f},{w:.3f},{h:.3f})"
+
+    @tool
+    def propose_rois(rois_json: str) -> str:
+        """Replace draft ROI list. Argument: JSON array of {id,label,category,norm{x,y,w,h}}."""
+        import json
+
+        rois = json.loads(rois_json)
+        if not isinstance(rois, list):
+            return "error: rois must be a JSON array"
+        draft_box["rois"] = rois
+        return f"ok: stored {len(rois)} rois"
+
+    return [ocr_region, propose_rois]
+```
+
+```python
+# apps/api/src/sc_roi_api/agent/graph.py
+from __future__ import annotations
+
+from typing import Any, Callable, Literal
+
+from langchain_core.messages import SystemMessage
+from langchain_openai import ChatOpenAI
+from langgraph.graph import END, START, StateGraph
+from langgraph.prebuilt import ToolNode
+
+from sc_roi_api.agent.state import AgentState
+from sc_roi_api.agent.tools import build_tools
+
+SYSTEM = """You calibrate HUD ROIs from a screenshot only (vision).
+Use tools: ocr_region for crops; propose_rois to submit final boxes.
+norm x,y,w,h must be 0..1. Never discuss memory, injection, or game processes."""
+
+
+def build_suggest_graph(
+    *,
+    api_key: str,
+    base_url: str,
+    model: str,
+    get_image_bytes: Callable[[], bytes],
+    draft_box: dict[str, list],
+):
+    tools = build_tools(get_image_bytes, draft_box)
+    llm = ChatOpenAI(
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
+        temperature=0,
+    ).bind_tools(tools)
+    tool_node = ToolNode(tools)
+
+    def reason(state: AgentState):
+        msgs = state["messages"]
+        if not msgs or not isinstance(msgs[0], SystemMessage):
+            msgs = [SystemMessage(content=SYSTEM), *msgs]
+        return {"messages": [llm.invoke(msgs)]}
+
+    def route(state: AgentState) -> Literal["tools", "end"]:
+        last = state["messages"][-1]
+        if getattr(last, "tool_calls", None):
+            return "tools"
+        return "end"
+
+    g = StateGraph(AgentState)
+    g.add_node("reason", reason)
+    g.add_node("tools", tool_node)
+    g.add_edge(START, "reason")
+    g.add_conditional_edges("reason", route, {"tools": "tools", "end": END})
+    g.add_edge("tools", "reason")
+    return g.compile()
+```
+
+```python
+# apps/api/src/sc_roi_api/agent/runner.py
+from __future__ import annotations
+
 import os
 from typing import Any
 
-import httpx
+from langchain_core.messages import HumanMessage
 
-SYSTEM = """You help calibrate HUD ROIs from a screenshot only.
-Return JSON: {"rois":[{"id":"string","label":"string","category":"string","norm":{"x":0,"y":0,"w":0,"h":0}}]}
-norm values must be 0..1 relative to the full image. No other keys. Vision only — never discuss memory or injection."""
+from sc_roi_api.agent.graph import build_suggest_graph
 
 
 def agent_enabled() -> bool:
     return os.getenv("SC_ROI_AGENT_ENABLED", "1") not in {"0", "false", "False"}
 
 
-async def suggest_rois(
+def validate_rois(rois: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out = []
+    for r in rois:
+        n = r.get("norm") or {}
+        if not all(k in n for k in ("x", "y", "w", "h")):
+            continue
+        if not all(0.0 <= float(n[k]) <= 1.0 for k in ("x", "y", "w", "h")):
+            continue
+        out.append(
+            {
+                "id": str(r.get("id") or f"roi_{len(out)}"),
+                "label": str(r.get("label") or "unknown"),
+                "category": str(r.get("category") or "ui"),
+                "norm": {
+                    "x": float(n["x"]),
+                    "y": float(n["y"]),
+                    "w": float(n["w"]),
+                    "h": float(n["h"]),
+                },
+            }
+        )
+    return out
+
+
+async def run_suggest_rois(
+    *,
     image_bytes: bytes,
     prompt: str,
+    aspect_ratio: str,
     api_key: str,
-    base_url: str | None = None,
-    model: str | None = None,
 ) -> list[dict[str, Any]]:
     if not agent_enabled():
         raise RuntimeError("Agent is disabled")
     if not api_key:
         raise RuntimeError("API key required")
-    base = (base_url or os.getenv("SC_ROI_LLM_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
-    model = model or os.getenv("SC_ROI_LLM_MODEL") or "gpt-4o-mini"
     import base64
 
+    base_url = (os.getenv("SC_ROI_LLM_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
+    model = os.getenv("SC_ROI_LLM_MODEL") or "gpt-4o-mini"
+    draft_box: dict[str, list] = {"rois": []}
+    graph = build_suggest_graph(
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
+        get_image_bytes=lambda: image_bytes,
+        draft_box=draft_box,
+    )
     b64 = base64.b64encode(image_bytes).decode("ascii")
-    payload = {
-        "model": model,
-        "response_format": {"type": "json_object"},
-        "messages": [
-            {"role": "system", "content": SYSTEM},
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/png;base64,{b64}"},
-                    },
-                ],
-            },
-        ],
-    }
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        resp = await client.post(
-            f"{base}/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}"},
-            json=payload,
-        )
-        resp.raise_for_status()
-        content = resp.json()["choices"][0]["message"]["content"]
-    data = json.loads(content)
-    return data.get("rois", [])
+    user = HumanMessage(
+        content=[
+            {"type": "text", "text": f"aspect={aspect_ratio}\n{prompt}"},
+            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
+        ]
+    )
+    graph.invoke(
+        {"messages": [user], "aspect_ratio": aspect_ratio, "draft_rois": []},
+        config={"recursion_limit": 8},
+    )
+    return validate_rois(draft_box["rois"])
 ```
 
-Wire `POST /v1/agent/suggest-rois` in `main.py` using `UploadFile`, catch `RuntimeError` → 400.
+Wire `POST /v1/agent/suggest-rois` in `main.py` to `run_suggest_rois`; map `RuntimeError` → 400.
 
-- [ ] **Step 3: Frontend — settings field for API key (localStorage) + Suggest button**
+- [ ] **Step 4: Unit test validate_rois**
 
-```typescript
-// apps/web/src/lib/api.ts
-export async function suggestRois(file: Blob, prompt: string, apiKey: string) {
-  const fd = new FormData();
-  fd.append("file", file, "shot.png");
-  fd.append("prompt", prompt);
-  const r = await fetch("/v1/agent/suggest-rois", {
-    method: "POST",
-    headers: { "X-API-Key": apiKey },
-    body: fd,
-  });
-  if (!r.ok) throw new Error(await r.text());
-  return (await r.json()) as { rois: Array<{ id: string; label: string; category: string; norm: { x: number; y: number; w: number; h: number } }> };
-}
+```python
+# apps/api/tests/test_agent_validate.py
+from sc_roi_api.agent.runner import validate_rois
+
+
+def test_validate_drops_oob():
+    got = validate_rois(
+        [
+            {"id": "ok", "label": "a", "category": "ui", "norm": {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2}},
+            {"id": "bad", "label": "b", "category": "ui", "norm": {"x": -1, "y": 0, "w": 0.2, "h": 0.2}},
+        ]
+    )
+    assert len(got) == 1
+    assert got[0]["id"] == "ok"
 ```
 
-Proxy `/v1` to FastAPI in `vite.config.ts` during dev.
+- [ ] **Step 5: Frontend — API key (localStorage) + Suggest button**
 
-On success, `pushRois` merge or replace drafts onto canvas.
+Same as before: `suggestRois` FormData to `/v1/agent/suggest-rois` with `aspect_ratio`; merge drafts via `pushRois`. Proxy `/v1` in Vite.
 
-- [ ] **Step 4: `.env.example`**
+- [ ] **Step 6: `.env.example`**
 
 ```env
 SC_ROI_AGENT_ENABLED=1
 SC_ROI_LLM_BASE_URL=https://api.openai.com/v1
 SC_ROI_LLM_MODEL=gpt-4o-mini
-# API keys are provided by the user in the UI or as SC_ROI_LLM_API_KEY for server-side default (optional)
+# Prefer passing API key from the UI (X-API-Key). Optional server default:
+# SC_ROI_LLM_API_KEY=
 ```
 
-- [ ] **Step 5: Run API tests**
+- [ ] **Step 7: Run API tests — expect PASS**
 
-Run: `cd apps/api && .venv/bin/pytest -v`  
-Expected: PASS including disabled agent
+Run: `cd apps/api && .venv/bin/pip install -e ".[dev]" && .venv/bin/pytest -v`  
+Expected: PASS (disabled + validate); live LLM call not required in CI
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add apps/api apps/web .env.example
-git commit -m "feat(agent): optional cloud ROI suggest with disable path"
+git commit -m "feat(agent): lightweight LangGraph suggest-rois with vision-only tools"
 ```
 
 ---
@@ -1023,7 +1160,7 @@ git commit -m "docs: sync README with MVP architecture and quick start"
 | Aspect lock + auto-detect + manual override | Tasks 1, 3 |
 | Same-aspect proportional 1K/2K/4K | Tasks 1–3 |
 | Konva manual draw + undo | Task 3 |
-| Optional AI drafts | Task 4 |
+| Optional AI drafts via lightweight LangGraph | Task 4 |
 | Norm + 1K/2K/4K JSON | Tasks 1–3 |
 | Height-aligned ultrawide formula | Tasks 1–2 |
 | Docker + browser | Task 5 |
@@ -1039,6 +1176,7 @@ No TBD steps; geometry numbers locked to spec; agent disable path explicit.
 - `norm` / `px` / tiers `"1k"|"2k"|"4k"` shared naming across TS + Python
 - `buildExportPack` / `build_export_pack` same field names as design spec §4.4
 - API routes `/health`, `/v1/calibrations/export-preview`, `/v1/agent/suggest-rois`
+- Agent: LangGraph `StateGraph` with `reason` ↔ `tools` loop, `ocr_region` + `propose_rois`, `recursion_limit=8`
 
 ---
 

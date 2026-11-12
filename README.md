@@ -27,6 +27,8 @@
 
 设计说明见 [`docs/superpowers/specs/2026-11-13-sc-roi-forge-design.md`](docs/superpowers/specs/2026-11-13-sc-roi-forge-design.md)。
 
+可选 AI 粗标采用 **轻量 LangGraph**（云端 OpenAI-compatible 模型 + 白名单视觉工具）；无 Key / 关闭开关时仍可完整手动画框导出。
+
 ## 背景
 
 Star Citizen 的座舱与 HUD 信息密度高、布局随模式变化。基于视觉的 overlay / OCR 能力依赖对屏幕关键区域的准确定位。SC-ROI-Forge 将「标定」独立成工具链环节：先把 ROI 画清楚、对得准，再服务上层纯视觉处理，而不触碰游戏内部数据。

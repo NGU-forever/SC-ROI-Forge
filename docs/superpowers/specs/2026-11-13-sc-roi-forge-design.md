@@ -177,8 +177,8 @@ Tauri EXE─┘         │                                    │
 | Frontend | React + Vite + TypeScript + Tailwind |
 | Canvas | Konva / react-konva |
 | Backend | FastAPI + Uvicorn + Pydantic |
-| Agent | OpenAI-compatible cloud API; disable-able; tools limited to image→draft ROIs |
-| Vision | OpenCV + RapidOCR (pluggable); assist rough labeling, not required |
+| Agent | **LangGraph** (lightweight `StateGraph`) + LangChain chat model over **OpenAI-compatible** cloud API; fully disable-able |
+| Vision | OpenCV + RapidOCR (pluggable); exposed as LangGraph tools for assist, not required |
 | Browser | Same SPA, static hosted or via API |
 | Docker | Compose: `api` + static `web` |
 | Windows EXE | Tauri 2 shell + Python FastAPI sidecar |
@@ -202,13 +202,35 @@ docs/             # Specs, plans, compliance notes
 - `POST /v1/agent/suggest-rois` — multipart/base64 image + prompt → draft ROI list (requires API key; 503/400 if disabled/missing)
 - No endpoints that accept process IDs, memory addresses, or injection payloads
 
-### 5.4 Agent tools (allowed)
+### 5.4 Agent architecture (LangGraph, lightweight)
 
-- Read uploaded screenshot bytes
-- Suggest ROI boxes + labels/categories
-- Optionally run OCR on a crop to help naming
+Use a **small, bounded** LangGraph — not a multi-agent swarm. One graph per `suggest-rois` request:
 
-Forbidden tool ideas: anything touching game memory, hooks, or client files.
+```text
+START → reason (vision LLM + bind_tools)
+          ├─(tool calls)→ tools → reason   (loop, recursion_limit ≤ 8)
+          └─(final JSON)→ validate_rois → END
+```
+
+**State (minimal):** `messages`, `image_ref` (server-side handle to uploaded bytes only), `aspect_ratio`, `draft_rois`.
+
+**Allowed tools (whitelist):**
+
+| Tool | Purpose |
+|------|---------|
+| `ocr_region` | OCR a normalized crop of the uploaded screenshot (helps labeling) |
+| `propose_rois` | Emit / replace draft ROI list (`id`, `label`, `category`, `norm` in 0..1) |
+
+**Model:** LangChain `ChatOpenAI` (or equivalent) pointed at user `base_url` + API key — works with OpenAI, and compatible gateways.
+
+**Guards:**
+
+- `SC_ROI_AGENT_ENABLED=0` → endpoint returns 400; graph never built
+- `recursion_limit` hard-capped (default 8)
+- Final node validates `norm` ranges and strips unknown fields before response
+- No tools for process memory, injection, filesystem outside the request temp image, or game clients
+
+**Why LangGraph (vs raw HTTP chat):** explicit tool loop, easy to add a validate node, testable graph edges, room to grow (e.g. human-in-the-loop later) without rewriting the FastAPI surface. We intentionally skip heavy ops stacks (no required LangSmith) for MVP.
 
 ## 6. MVP scope
 
