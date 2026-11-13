@@ -1,0 +1,14 @@
+{
+  "name": "@sc-roi/desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Tauri 2 desktop shell for SC ROI Forge (Windows EXE path)",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.9.6"
+  }
+}

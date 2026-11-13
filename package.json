@@ -1,0 +1,9 @@
+{
+  "name": "sc-roi-forge",
+  "private": true,
+  "workspaces": [
+    "apps/web",
+    "apps/desktop",
+    "packages/schema"
+  ]
+}
