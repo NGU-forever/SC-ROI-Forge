@@ -9,6 +9,7 @@ import {
 } from "react-konva";
 import type Konva from "konva";
 import type { Roi } from "./useRoiStore";
+import { useI18n } from "@/i18n";
 import { normFromStage, stageFromNorm, stageSize } from "@/lib/stageSize";
 
 const MIN_BOX = 8;
@@ -18,27 +19,45 @@ type Props = {
   aspectRatio: string;
   rois: Roi[];
   selectedId: string | null;
+  defaultLabel: (index: number) => string;
+  defaultCategory: string;
   onSelect: (id: string | null) => void;
   onImageLoaded: (width: number, height: number) => void;
   onAddRoi: (roi: Roi) => void;
   onUpdateRoi: (id: string, patch: Partial<Roi>) => void;
+  onImportClick?: () => void;
 };
 
 function useHtmlImage(url: string | null) {
   const [image, setImage] = useState<HTMLImageElement | undefined>();
+  const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
   useEffect(() => {
     if (!url) {
       setImage(undefined);
+      setLoadedUrl(null);
       return;
     }
+    let cancelled = false;
     const img = new window.Image();
-    img.onload = () => setImage(img);
+    img.onload = () => {
+      if (cancelled) return;
+      setImage(img);
+      setLoadedUrl(url);
+    };
+    img.onerror = () => {
+      if (cancelled) return;
+      setImage(undefined);
+      setLoadedUrl(url);
+    };
     img.src = url;
     return () => {
+      cancelled = true;
       img.onload = null;
+      img.onerror = null;
     };
   }, [url]);
-  return image;
+  const loading = Boolean(url) && loadedUrl !== url;
+  return { image, loading };
 }
 
 export function RoiStage({
@@ -46,13 +65,17 @@ export function RoiStage({
   aspectRatio,
   rois,
   selectedId,
+  defaultLabel,
+  defaultCategory,
   onSelect,
   onImageLoaded,
   onAddRoi,
   onUpdateRoi,
+  onImportClick,
 }: Props) {
+  const { t } = useI18n();
   const { width: stageW, height: stageH } = stageSize(aspectRatio);
-  const image = useHtmlImage(imageUrl);
+  const { image, loading } = useHtmlImage(imageUrl);
   const transformerRef = useRef<Konva.Transformer>(null);
   const stageRef = useRef<Konva.Stage>(null);
   const [drawStart, setDrawStart] = useState<{ x: number; y: number } | null>(
@@ -138,8 +161,8 @@ export function RoiStage({
     const id = crypto.randomUUID();
     onAddRoi({
       id,
-      label: `roi_${rois.length + 1}`,
-      category: "general",
+      label: defaultLabel(rois.length + 1),
+      category: defaultCategory,
       norm,
     });
     onSelect(id);
@@ -153,17 +176,36 @@ export function RoiStage({
 
   if (!imageUrl) {
     return (
-      <div className="flex min-h-[320px] items-center justify-center rounded border border-dashed border-slate-700 bg-slate-950 p-8 text-slate-500">
-        Import or paste a screenshot to begin.
+      <div className="flex h-full min-h-[240px] flex-col items-center justify-center gap-3 rounded border border-dashed border-slate-600 bg-slate-950/80 p-8 text-center">
+        <p className="text-base text-slate-300">{t("emptyCanvas")}</p>
+        <p className="text-xs text-slate-500">{t("emptyCanvasHint")}</p>
+        {onImportClick && (
+          <button
+            type="button"
+            className="mt-1 rounded bg-sky-600 px-4 py-2 text-sm font-medium hover:bg-sky-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
+            onClick={onImportClick}
+          >
+            {t("importImage")}
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  if (loading || !image) {
+    return (
+      <div
+        className="flex h-full min-h-[240px] items-center justify-center rounded border border-slate-700 bg-slate-950 text-sm text-slate-400"
+        role="status"
+        aria-live="polite"
+      >
+        {t("imageLoading")}
       </div>
     );
   }
 
   return (
-    <div
-      className="overflow-auto rounded border border-slate-700 bg-slate-950"
-      style={{ maxHeight: "calc(100vh - 12rem)" }}
-    >
+    <div className="h-full min-h-0 overflow-auto rounded border border-slate-700 bg-slate-950">
       <Stage
         ref={stageRef}
         width={stageW}
@@ -175,16 +217,14 @@ export function RoiStage({
         className="cursor-crosshair"
       >
         <Layer>
-          {image && (
-            <KonvaImage
-              image={image}
-              x={0}
-              y={0}
-              width={stageW}
-              height={stageH}
-              listening={false}
-            />
-          )}
+          <KonvaImage
+            image={image}
+            x={0}
+            y={0}
+            width={stageW}
+            height={stageH}
+            listening={false}
+          />
           {rois.map((roi) => {
             const rect = stageFromNorm(roi.norm, stageW, stageH);
             const isSelected = roi.id === selectedId;
