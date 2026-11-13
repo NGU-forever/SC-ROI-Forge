@@ -10,6 +10,7 @@ import { useRoiStore } from "@/canvas/useRoiStore";
 import { ChatPanel, type ChatMessage } from "@/chat/ChatPanel";
 import { RoiInspectorBar } from "@/chat/RoiInspectorBar";
 import { downloadPack } from "@/export/downloadPack";
+import { useI18n, type Locale } from "@/i18n";
 import { chatRois } from "@/lib/api";
 import { randomRoiColor } from "@/lib/roiColor";
 
@@ -21,7 +22,45 @@ function acceptImageFile(file: File): string | null {
   return URL.createObjectURL(file);
 }
 
+function LanguageSwitcher() {
+  const { locale, setLocale, t } = useI18n();
+  const set = (next: Locale) => () => setLocale(next);
+  return (
+    <div
+      className="inline-flex overflow-hidden rounded border border-stone-300 text-xs"
+      role="group"
+      aria-label={t("langSwitchAria")}
+    >
+      <button
+        type="button"
+        className={`px-2 py-1 ${
+          locale === "en"
+            ? "bg-stone-800 text-white"
+            : "bg-white text-stone-500 hover:text-stone-800"
+        }`}
+        aria-pressed={locale === "en"}
+        onClick={set("en")}
+      >
+        {t("langEn")}
+      </button>
+      <button
+        type="button"
+        className={`px-2 py-1 ${
+          locale === "zh"
+            ? "bg-stone-800 text-white"
+            : "bg-white text-stone-500 hover:text-stone-800"
+        }`}
+        aria-pressed={locale === "zh"}
+        onClick={set("zh")}
+      >
+        {t("langZh")}
+      </button>
+    </div>
+  );
+}
+
 export default function App() {
+  const { t } = useI18n();
   const {
     imageUrl,
     aspectRatio,
@@ -188,9 +227,9 @@ export default function App() {
   };
 
   const chatDisabledReason = !imageUrl
-    ? "Import a screenshot first"
+    ? t("chatNeedImage")
     : !apiKey.trim()
-      ? "Set API key to enable"
+      ? t("chatNeedKey")
       : undefined;
 
   const handleChatSend = async (text: string) => {
@@ -271,11 +310,14 @@ export default function App() {
   return (
     <div className="mx-auto flex min-h-screen max-w-[90rem] flex-col gap-3 p-4 text-stone-900">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-200 pb-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-stone-900">
-            SC-ROI Forge
-          </h1>
-          <p className="text-sm text-stone-500">Manual HUD ROI calibration</p>
+        <div className="flex flex-wrap items-center gap-3">
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight text-stone-900">
+              {t("appTitle")}
+            </h1>
+            <p className="text-sm text-stone-500">{t("appSubtitle")}</p>
+          </div>
+          <LanguageSwitcher />
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <input
@@ -297,21 +339,21 @@ export default function App() {
             className="rounded bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700"
             onClick={() => fileInputRef.current?.click()}
           >
-            Import image
+            {t("importImage")}
           </button>
           <button
             type="button"
             className="rounded border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-700 hover:bg-stone-50"
             onClick={undo}
           >
-            Undo
+            {t("undo")}
           </button>
           <button
             type="button"
             className="rounded border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-700 hover:bg-stone-50"
             onClick={redo}
           >
-            Redo
+            {t("redo")}
           </button>
           <button
             type="button"
@@ -319,14 +361,14 @@ export default function App() {
             disabled={!imageUrl || rois.length === 0}
             onClick={handleExport}
           >
-            Export JSON
+            {t("exportJson")}
           </button>
         </div>
       </header>
 
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1 text-xs text-stone-500">
-          LLM API key (local only)
+          {t("apiKeyLabel")}
           <input
             type="password"
             className="w-56 rounded border border-stone-300 bg-white px-2 py-1.5 text-sm text-stone-900"
@@ -336,12 +378,16 @@ export default function App() {
               setApiKey(v);
               localStorage.setItem(API_KEY_STORAGE, v);
             }}
-            placeholder="sk-…"
+            placeholder={t("apiKeyPlaceholder")}
             autoComplete="off"
+            title={t("apiKeyVisionHint")}
           />
+          <span className="max-w-56 leading-snug text-amber-800">
+            {t("apiKeyVisionHint")}
+          </span>
         </label>
         <label className="flex flex-col gap-1 text-sm text-stone-700">
-          Aspect preset
+          {t("aspectPreset")}
           <select
             className="rounded border border-stone-300 bg-white px-2 py-1.5 text-stone-900"
             value={preset}
@@ -349,14 +395,14 @@ export default function App() {
           >
             {PRESET_OPTIONS.map((p) => (
               <option key={p} value={p}>
-                {p === "custom" ? "Custom…" : p}
+                {p === "custom" ? t("customOption") : p}
               </option>
             ))}
           </select>
         </label>
         {preset === "custom" && (
           <label className="flex flex-col gap-1 text-sm text-stone-700">
-            Custom A:B
+            {t("customAspect")}
             <input
               className="w-28 rounded border border-stone-300 bg-white px-2 py-1.5 text-stone-900"
               value={customAspect}
@@ -372,7 +418,8 @@ export default function App() {
               : "bg-amber-100 text-amber-900"
           }`}
         >
-          {aspectMode === "detected" ? "detected" : "manual"} · {aspectRatio}
+          {aspectMode === "detected" ? t("aspectDetected") : t("aspectManual")}{" "}
+          · {aspectRatio}
         </span>
         {detectedAspect && aspectMode === "manual" && (
           <button
@@ -380,14 +427,15 @@ export default function App() {
             className="text-sm text-sky-700 underline"
             onClick={resetToDetected}
           >
-            Reset to detected ({detectedAspect})
+            {t("resetToDetected").replace("{aspect}", detectedAspect)}
           </button>
         )}
         {aspectError && (
-          <span className="text-sm text-red-600">{aspectError}</span>
+          <span className="text-sm text-red-600">{t("aspectError")}</span>
         )}
         <span className="ml-auto text-xs text-stone-500">
-          {rois.length} ROI(s) · Paste · Wheel zoom · Space/MMB pan · ⌘Z · Del
+          {t("roiCount").replace("{count}", String(rois.length))} ·{" "}
+          {t("shortcutsHint")}
         </span>
       </div>
 

@@ -1,3 +1,5 @@
+import { useI18n } from "@/i18n";
+
 export type ChatMessage = {
   role: "user" | "assistant";
   content: string;
@@ -19,16 +21,20 @@ export function ChatPanel({
   disabledReason,
   onSend,
 }: Props) {
+  const { t } = useI18n();
   return (
     <aside className="flex h-full min-h-[28rem] w-full max-w-sm flex-col overflow-hidden rounded-lg border border-[var(--chrome-border)] bg-[var(--chrome-surface)] text-sm text-[var(--chrome-fg)]">
       <div className="border-b border-[var(--chrome-border)] px-3 py-2 font-medium">
-        AI Assistant
+        {t("aiAssistant")}
       </div>
       <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-3">
         {messages.length === 0 && (
-          <p className="text-xs text-[var(--chrome-muted)]">
-            Ask for HUD ROIs, then refine: add, move, rename, or delete boxes.
-          </p>
+          <div className="space-y-2 text-xs text-[var(--chrome-muted)]">
+            <p>{t("chatEmpty")}</p>
+            <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-amber-900">
+              {t("chatMultimodalHint")}
+            </p>
+          </div>
         )}
         {messages.map((m, i) => (
           <div
@@ -52,7 +58,7 @@ export function ChatPanel({
           </div>
         ))}
         {busy && (
-          <p className="text-xs text-[var(--chrome-muted)]">Thinking…</p>
+          <p className="text-xs text-[var(--chrome-muted)]">{t("chatThinking")}</p>
         )}
       </div>
       <form
@@ -69,7 +75,7 @@ export function ChatPanel({
         <input
           name="text"
           className="min-w-0 flex-1 rounded-md border border-[var(--chrome-border)] bg-[var(--chrome-input)] px-2 py-1.5 text-[var(--chrome-fg)] disabled:opacity-50"
-          placeholder={disabledReason || "Message…"}
+          placeholder={disabledReason || t("chatPlaceholder")}
           disabled={disabled || busy}
           autoComplete="off"
         />
@@ -78,7 +84,7 @@ export function ChatPanel({
           className="rounded-md bg-[var(--accent)] px-3 py-1.5 font-medium text-white hover:bg-[var(--accent-hover)] disabled:opacity-40"
           disabled={disabled || busy}
         >
-          Send
+          {t("chatSend")}
         </button>
       </form>
     </aside>
