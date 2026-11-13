@@ -10,3 +10,7 @@ __pycache__/
 .pytest_cache/
 .DS_Store
 apps/desktop/src-tauri/target/
+
+.worktrees/
+.superpowers/
+*.egg-info/
