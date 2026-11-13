@@ -65,7 +65,7 @@ px[tier] = round(norm * dimension)  # 导入时亦由 norm 重算，不信赖陈
 - 需要用户自备 **OpenAI 兼容** API Key（请求头 `X-API-Key` 或环境变量 `SC_ROI_LLM_API_KEY`）；`SC_ROI_LLM_BASE_URL`、`SC_ROI_LLM_MODEL` 见 [`.env.example`](.env.example)。
 - 设置 `SC_ROI_AGENT_ENABLED=0`（或 `false`）可完全关闭 Agent；**无 Key / 关闭开关时仍可手动画框并导出**。
 
-## 给玩家（不会装开发环境）
+## 快速开始（免手动装开发环境）
 
 **Windows：** 解压发布的 `SC-ROI-Forge-windows.zip` → 双击 `安装并启动.bat`（首次会检查 WebView2，并可建桌面快捷方式）→ 之后点 EXE / `启动.bat` 即可。不需要 Node / Python / Rust。
 
@@ -80,7 +80,7 @@ chmod +x deploy/unix/start.sh
 
 （有打包好的二进制就起二进制；在本仓库开发时会尝试用 `apps/api` 的 `.venv` 起 API，并打开浏览器。）
 
-## 快速开始（开发者）
+## 安装与开发
 
 **前置：** Node.js 20+、Python 3.11+、（可选）Rust + Docker。
 
