@@ -3,8 +3,10 @@ import { ASPECT_PRESETS, detectAspectRatio, parseAspectRatio } from "@sc-roi/sch
 import { RoiStage } from "@/canvas/RoiStage";
 import { useRoiStore } from "@/canvas/useRoiStore";
 import { downloadPack } from "@/export/downloadPack";
+import { suggestRois } from "@/lib/api";
 
 const PRESET_OPTIONS = [...ASPECT_PRESETS, "custom"] as const;
+const API_KEY_STORAGE = "sc-roi-llm-api-key";
 
 function acceptImageFile(file: File): string | null {
   if (!file.type.startsWith("image/")) return null;
@@ -19,6 +21,7 @@ export default function App() {
     setImageUrl,
     setAspectRatio,
     clearRois,
+    pushRois,
     addRoi,
     updateRoi,
     patchRoiMeta,
@@ -33,6 +36,14 @@ export default function App() {
   const [preset, setPreset] = useState<string>("16:9");
   const [customAspect, setCustomAspect] = useState("16:9");
   const [aspectError, setAspectError] = useState<string | null>(null);
+  const [apiKey, setApiKey] = useState(
+    () => localStorage.getItem(API_KEY_STORAGE) ?? "",
+  );
+  const [aiPrompt, setAiPrompt] = useState(
+    "Roughly find HUD regions and propose labeled ROI boxes (norm 0..1).",
+  );
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastImageUrlRef = useRef<string | null>(null);
 
@@ -223,12 +234,66 @@ export default function App() {
           </button>
           <button
             type="button"
-            className="cursor-not-allowed rounded border border-slate-700 px-3 py-1.5 text-sm text-slate-500"
-            disabled
-            title="Task 4"
+            className="rounded border border-violet-600 px-3 py-1.5 text-sm text-violet-200 hover:bg-violet-950/50 disabled:opacity-40"
+            disabled={!imageUrl || !apiKey.trim() || aiBusy}
+            title={!apiKey.trim() ? "Set API key to enable" : "Optional cloud AI"}
+            onClick={async () => {
+              if (!imageUrl) return;
+              setAiBusy(true);
+              setAiError(null);
+              try {
+                const blob = await fetch(imageUrl).then((r) => r.blob());
+                const { rois: drafts } = await suggestRois({
+                  file: blob,
+                  prompt: aiPrompt,
+                  aspectRatio,
+                  apiKey: apiKey.trim(),
+                });
+                pushRois(
+                  drafts.map((d) => ({
+                    id: d.id,
+                    label: d.label,
+                    category: d.category,
+                    norm: d.norm,
+                  })),
+                );
+              } catch (e) {
+                setAiError(e instanceof Error ? e.message : String(e));
+              } finally {
+                setAiBusy(false);
+              }
+            }}
           >
-            Suggest with AI
+            {aiBusy ? "Suggesting…" : "Suggest with AI"}
           </button>
+        </div>
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="flex flex-col gap-1 text-xs text-slate-400">
+            LLM API key (local only)
+            <input
+              type="password"
+              className="w-56 rounded border border-slate-600 bg-slate-900 px-2 py-1.5 text-sm text-slate-100"
+              value={apiKey}
+              onChange={(e) => {
+                const v = e.target.value;
+                setApiKey(v);
+                localStorage.setItem(API_KEY_STORAGE, v);
+              }}
+              placeholder="sk-…"
+              autoComplete="off"
+            />
+          </label>
+          <label className="flex min-w-[16rem] flex-1 flex-col gap-1 text-xs text-slate-400">
+            AI prompt
+            <input
+              className="rounded border border-slate-600 bg-slate-900 px-2 py-1.5 text-sm text-slate-100"
+              value={aiPrompt}
+              onChange={(e) => setAiPrompt(e.target.value)}
+            />
+          </label>
+          {aiError && (
+            <span className="max-w-md text-xs text-red-400">{aiError}</span>
+          )}
         </div>
       </header>
 
