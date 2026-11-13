@@ -84,7 +84,7 @@ apps/desktop/
   package.json          # @tauri-apps/cli scripts
   scripts/              # uvicorn helpers for dev
   src-tauri/
-    tauri.conf.json     # devUrl :1420, frontendDist ../web/dist
+    tauri.conf.json     # devUrl :1420, frontendDist ../../web/dist (from src-tauri/)
     capabilities/       # shell sidecar permissions
     binaries/           # sc-roi-api placeholders (see README there)
     src/lib.rs          # sidecar spawn hook

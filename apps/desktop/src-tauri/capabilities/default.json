@@ -10,7 +10,7 @@
       "identifier": "shell:allow-execute",
       "allow": [
         {
-          "name": "binaries/sc-roi-api",
+          "name": "sc-roi-api",
           "sidecar": true,
           "args": true
         }
