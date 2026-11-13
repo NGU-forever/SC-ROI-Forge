@@ -18,7 +18,10 @@ def build_tools(get_image_bytes: Callable[[], bytes], draft_box: dict[str, list]
         """Replace draft ROI list. Argument: JSON array of {id,label,category,norm{x,y,w,h}}."""
         import json
 
-        rois = json.loads(rois_json)
+        try:
+            rois = json.loads(rois_json)
+        except json.JSONDecodeError:
+            return "error: rois_json must be valid JSON"
         if not isinstance(rois, list):
             return "error: rois must be a JSON array"
         draft_box["rois"] = rois

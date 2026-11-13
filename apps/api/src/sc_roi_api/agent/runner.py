@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Any
 
@@ -66,7 +67,8 @@ async def run_suggest_rois(
             {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
         ]
     )
-    graph.invoke(
+    await asyncio.to_thread(
+        graph.invoke,
         {"messages": [user], "aspect_ratio": aspect_ratio, "draft_rois": []},
         config={"recursion_limit": 8},
     )
