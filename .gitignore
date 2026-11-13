@@ -1,0 +1,12 @@
+node_modules/
+dist/
+build/
+.env
+.env.*
+!.env.example
+__pycache__/
+.venv/
+*.pyc
+.pytest_cache/
+.DS_Store
+apps/desktop/src-tauri/target/
