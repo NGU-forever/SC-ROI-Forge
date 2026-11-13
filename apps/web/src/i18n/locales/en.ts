@@ -21,13 +21,15 @@ export const en = {
     "Roughly find HUD regions and propose labeled ROI boxes (norm 0..1).",
   aiSettingsShow: "Show AI settings",
   aiSettingsHide: "Hide AI settings",
+  aiSettingsToggle: "AI settings",
+  aiSettingsHint: "Configure API key & prompt",
 
-  aspectPreset: "Aspect preset",
-  customAspect: "Custom A:B",
+  aspectPreset: "Aspect",
+  customAspect: "A:B",
   customOption: "Custom…",
   aspectDetected: "detected",
   aspectManual: "manual",
-  resetToDetected: "Reset to detected ({aspect})",
+  resetToDetected: "Reset ({aspect})",
   aspectError: "Use format A:B (e.g. 21:9)",
 
   selection: "Selection",

@@ -22,13 +22,15 @@ export const zh: Messages = {
   aiPromptDefault: "大致找出 HUD 区域，并给出带标签的 ROI 框（归一化坐标 0..1）。",
   aiSettingsShow: "显示 AI 设置",
   aiSettingsHide: "隐藏 AI 设置",
+  aiSettingsToggle: "AI 设置",
+  aiSettingsHint: "配置 API Key 与提示词",
 
-  aspectPreset: "画幅预设",
-  customAspect: "自定义 A:B",
+  aspectPreset: "画幅",
+  customAspect: "A:B",
   customOption: "自定义…",
   aspectDetected: "已检测",
   aspectManual: "手动",
-  resetToDetected: "恢复为检测值（{aspect}）",
+  resetToDetected: "恢复（{aspect}）",
   aspectError: "请使用 A:B 格式（例如 21:9）",
 
   selection: "选中项",

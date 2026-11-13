@@ -176,7 +176,7 @@ export function RoiStage({
 
   if (!imageUrl) {
     return (
-      <div className="flex min-h-[320px] flex-col items-center justify-center gap-3 rounded border border-dashed border-slate-600 bg-slate-950/80 p-8 text-center">
+      <div className="flex h-full min-h-[240px] flex-col items-center justify-center gap-3 rounded border border-dashed border-slate-600 bg-slate-950/80 p-8 text-center">
         <p className="text-base text-slate-300">{t("emptyCanvas")}</p>
         <p className="text-xs text-slate-500">{t("emptyCanvasHint")}</p>
         {onImportClick && (
@@ -195,7 +195,7 @@ export function RoiStage({
   if (loading || !image) {
     return (
       <div
-        className="flex min-h-[320px] items-center justify-center rounded border border-slate-700 bg-slate-950 text-sm text-slate-400"
+        className="flex h-full min-h-[240px] items-center justify-center rounded border border-slate-700 bg-slate-950 text-sm text-slate-400"
         role="status"
         aria-live="polite"
       >
@@ -205,10 +205,7 @@ export function RoiStage({
   }
 
   return (
-    <div
-      className="overflow-auto rounded border border-slate-700 bg-slate-950"
-      style={{ maxHeight: "calc(100vh - 14rem)" }}
-    >
+    <div className="h-full min-h-0 overflow-auto rounded border border-slate-700 bg-slate-950">
       <Stage
         ref={stageRef}
         width={stageW}

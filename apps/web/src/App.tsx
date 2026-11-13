@@ -10,13 +10,15 @@ const PRESET_OPTIONS = [...ASPECT_PRESETS, "custom"] as const;
 const API_KEY_STORAGE = "sc-roi-llm-api-key";
 
 const btnPrimary =
-  "rounded bg-sky-600 px-3 py-1.5 text-sm font-medium hover:bg-sky-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:opacity-40";
+  "rounded bg-sky-600 px-2.5 py-1 text-sm font-medium hover:bg-sky-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:opacity-40";
 const btnSecondary =
-  "rounded border border-slate-600 px-3 py-1.5 text-sm hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400 disabled:opacity-40";
+  "rounded border border-slate-600 px-2.5 py-1 text-sm hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400 disabled:opacity-40";
 const btnExport =
-  "rounded bg-emerald-600 px-3 py-1.5 text-sm font-medium hover:bg-emerald-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400 disabled:opacity-40";
+  "rounded bg-emerald-600 px-2.5 py-1 text-sm font-medium hover:bg-emerald-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400 disabled:opacity-40";
 const btnAi =
-  "rounded border border-cyan-700/80 px-3 py-1.5 text-sm text-cyan-100 hover:bg-cyan-950/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-400 disabled:opacity-40";
+  "rounded border border-cyan-700/80 px-2.5 py-1 text-sm text-cyan-100 hover:bg-cyan-950/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-400 disabled:opacity-40";
+const fieldCompact =
+  "rounded border border-slate-600 bg-slate-900 px-2 py-1 text-sm text-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400";
 
 function acceptImageFile(file: File): string | null {
   if (!file.type.startsWith("image/")) return null;
@@ -34,7 +36,7 @@ function LanguageSwitcher() {
     >
       <button
         type="button"
-        className={`px-2.5 py-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 ${
+        className={`px-2 py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 ${
           locale === "en"
             ? "bg-slate-700 text-white"
             : "bg-slate-900 text-slate-400 hover:text-slate-200"
@@ -46,7 +48,7 @@ function LanguageSwitcher() {
       </button>
       <button
         type="button"
-        className={`px-2.5 py-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 ${
+        className={`px-2 py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 ${
           locale === "zh"
             ? "bg-slate-700 text-white"
             : "bg-slate-900 text-slate-400 hover:text-slate-200"
@@ -235,21 +237,107 @@ export default function App() {
     );
   };
 
+  const runSuggest = async () => {
+    if (!imageUrl) return;
+    if (!apiKey.trim()) {
+      setAiOpen(true);
+      return;
+    }
+    setAiBusy(true);
+    setAiError(null);
+    try {
+      const blob = await fetch(imageUrl).then((r) => r.blob());
+      const { rois: drafts } = await suggestRois({
+        file: blob,
+        prompt: aiPrompt,
+        aspectRatio,
+        apiKey: apiKey.trim(),
+      });
+      pushRois(
+        drafts.map((d) => ({
+          id: d.id,
+          label: d.label,
+          category: d.category,
+          norm: d.norm,
+        })),
+      );
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : String(e));
+      setAiOpen(true);
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
   const selected = rois.find((r) => r.id === selectedId);
   const canUndo = past.length > 0;
   const canRedo = future.length > 0;
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-7xl flex-col gap-4 p-4">
-      <header className="flex flex-col gap-3 border-b border-slate-800 pb-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="text-xl font-semibold tracking-tight text-slate-100">
+    <div className="mx-auto flex h-dvh max-w-[90rem] flex-col overflow-hidden px-3 pb-3 pt-2">
+      <header className="shrink-0 border-b border-slate-800 pb-2">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <div className="min-w-0 shrink-0">
+            <h1 className="text-base font-semibold leading-tight tracking-tight text-slate-100">
               {t("appTitle")}
             </h1>
-            <p className="text-sm text-slate-400">{t("appSubtitle")}</p>
+            <p className="hidden text-[11px] leading-tight text-slate-500 sm:block">
+              {t("appSubtitle")}
+            </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+
+          <div
+            className="flex flex-wrap items-center gap-1.5 border-l border-slate-800 pl-3"
+            aria-label={t("aspectPreset")}
+          >
+            <span className="text-xs text-slate-500">{t("aspectPreset")}</span>
+            <select
+              className={fieldCompact}
+              value={preset}
+              onChange={(e) => onPresetChange(e.target.value)}
+            >
+              {PRESET_OPTIONS.map((p) => (
+                <option key={p} value={p}>
+                  {p === "custom" ? t("customOption") : p}
+                </option>
+              ))}
+            </select>
+            {preset === "custom" && (
+              <input
+                className={`${fieldCompact} w-20`}
+                aria-label={t("customAspect")}
+                value={customAspect}
+                onChange={(e) => setCustomAspect(e.target.value)}
+                onBlur={onCustomAspectBlur}
+              />
+            )}
+            <span
+              className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${
+                aspectMode === "detected"
+                  ? "bg-sky-900/60 text-sky-300"
+                  : "bg-amber-900/50 text-amber-200"
+              }`}
+            >
+              {aspectMode === "detected" ? t("aspectDetected") : t("aspectManual")} ·{" "}
+              {aspectRatio}
+            </span>
+            {detectedAspect && aspectMode === "manual" && (
+              <button
+                type="button"
+                className="rounded border border-sky-800 px-1.5 py-0.5 text-[11px] text-sky-300 hover:bg-sky-950/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
+                onClick={resetToDetected}
+              >
+                {t("resetToDetected", { aspect: detectedAspect })}
+              </button>
+            )}
+            {aspectError && (
+              <span className="text-xs text-red-400" role="alert">
+                {aspectError}
+              </span>
+            )}
+          </div>
+
+          <div className="ml-auto flex flex-wrap items-center gap-1.5">
             <LanguageSwitcher />
             <input
               ref={fileInputRef}
@@ -272,6 +360,7 @@ export default function App() {
             >
               {t("importImage")}
             </button>
+            <span className="mx-0.5 hidden h-4 w-px bg-slate-700 sm:inline-block" aria-hidden />
             <button
               type="button"
               className={btnSecondary}
@@ -288,6 +377,7 @@ export default function App() {
             >
               {t("redo")}
             </button>
+            <span className="mx-0.5 hidden h-4 w-px bg-slate-700 sm:inline-block" aria-hidden />
             <button
               type="button"
               className={btnExport}
@@ -296,155 +386,83 @@ export default function App() {
             >
               {t("exportJson")}
             </button>
+            <span className="mx-0.5 hidden h-4 w-px bg-slate-700 sm:inline-block" aria-hidden />
             <button
               type="button"
               className={btnAi}
-              disabled={!imageUrl || !apiKey.trim() || aiBusy}
+              disabled={!imageUrl || aiBusy}
               title={!apiKey.trim() ? t("suggestNeedsKey") : t("suggestOptional")}
-              onClick={async () => {
-                if (!imageUrl) return;
-                setAiBusy(true);
-                setAiError(null);
-                try {
-                  const blob = await fetch(imageUrl).then((r) => r.blob());
-                  const { rois: drafts } = await suggestRois({
-                    file: blob,
-                    prompt: aiPrompt,
-                    aspectRatio,
-                    apiKey: apiKey.trim(),
-                  });
-                  pushRois(
-                    drafts.map((d) => ({
-                      id: d.id,
-                      label: d.label,
-                      category: d.category,
-                      norm: d.norm,
-                    })),
-                  );
-                } catch (e) {
-                  setAiError(e instanceof Error ? e.message : String(e));
-                  setAiOpen(true);
-                } finally {
-                  setAiBusy(false);
-                }
-              }}
+              onClick={() => void runSuggest()}
             >
               {aiBusy ? t("suggesting") : t("suggestAi")}
+            </button>
+            <button
+              type="button"
+              className={`${btnSecondary} ${aiOpen ? "border-cyan-700 bg-cyan-950/30 text-cyan-100" : ""}`}
+              aria-expanded={aiOpen}
+              aria-controls="ai-settings-panel"
+              title={t("aiSettingsHint")}
+              onClick={() => setAiOpen((v) => !v)}
+            >
+              {t("aiSettingsToggle")}
             </button>
           </div>
         </div>
 
-        <div>
-          <button
-            type="button"
-            className="text-xs text-slate-400 underline-offset-2 hover:text-slate-200 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400"
-            aria-expanded={aiOpen}
-            onClick={() => setAiOpen((v) => !v)}
+        {aiOpen && (
+          <div
+            id="ai-settings-panel"
+            className="mt-2 flex flex-wrap items-end gap-2 rounded border border-slate-800 bg-slate-900/50 px-2.5 py-2"
           >
-            {aiOpen ? t("aiSettingsHide") : t("aiSettingsShow")}
-          </button>
-          {aiOpen && (
-            <div className="mt-2 flex flex-wrap items-end gap-2">
-              <label className="flex flex-col gap-1 text-xs text-slate-400">
-                {t("apiKeyLabel")}
-                <input
-                  type="password"
-                  className="w-56 rounded border border-slate-600 bg-slate-900 px-2 py-1.5 text-sm text-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
-                  value={apiKey}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setApiKey(v);
-                    localStorage.setItem(API_KEY_STORAGE, v);
-                  }}
-                  placeholder={t("apiKeyPlaceholder")}
-                  autoComplete="off"
-                />
-              </label>
-              <label className="flex min-w-[16rem] flex-1 flex-col gap-1 text-xs text-slate-400">
-                {t("aiPromptLabel")}
-                <input
-                  className="rounded border border-slate-600 bg-slate-900 px-2 py-1.5 text-sm text-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
-                  value={aiPrompt}
-                  onChange={(e) => setAiPromptDraft(e.target.value)}
-                />
-              </label>
-              {aiError && (
-                <span className="max-w-md text-xs text-red-400" role="alert">
-                  {aiError}
-                </span>
-              )}
-            </div>
-          )}
-        </div>
+            <label className="flex flex-col gap-0.5 text-[11px] text-slate-400">
+              {t("apiKeyLabel")}
+              <input
+                type="password"
+                className={`${fieldCompact} w-52`}
+                value={apiKey}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setApiKey(v);
+                  localStorage.setItem(API_KEY_STORAGE, v);
+                }}
+                placeholder={t("apiKeyPlaceholder")}
+                autoComplete="off"
+              />
+            </label>
+            <label className="flex min-w-[14rem] flex-1 flex-col gap-0.5 text-[11px] text-slate-400">
+              {t("aiPromptLabel")}
+              <input
+                className={fieldCompact}
+                value={aiPrompt}
+                onChange={(e) => setAiPromptDraft(e.target.value)}
+              />
+            </label>
+            {aiError && (
+              <span className="max-w-md text-xs text-red-400" role="alert">
+                {aiError}
+              </span>
+            )}
+          </div>
+        )}
       </header>
 
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="flex flex-col gap-1 text-sm">
-          {t("aspectPreset")}
-          <select
-            className="rounded border border-slate-600 bg-slate-900 px-2 py-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
-            value={preset}
-            onChange={(e) => onPresetChange(e.target.value)}
-          >
-            {PRESET_OPTIONS.map((p) => (
-              <option key={p} value={p}>
-                {p === "custom" ? t("customOption") : p}
-              </option>
-            ))}
-          </select>
-        </label>
-        {preset === "custom" && (
-          <label className="flex flex-col gap-1 text-sm">
-            {t("customAspect")}
-            <input
-              className="w-28 rounded border border-slate-600 bg-slate-900 px-2 py-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
-              value={customAspect}
-              onChange={(e) => setCustomAspect(e.target.value)}
-              onBlur={onCustomAspectBlur}
-            />
-          </label>
-        )}
-        <span
-          className={`rounded px-2 py-1 text-xs font-medium ${
-            aspectMode === "detected"
-              ? "bg-sky-900/60 text-sky-300"
-              : "bg-amber-900/50 text-amber-200"
-          }`}
-        >
-          {aspectMode === "detected" ? t("aspectDetected") : t("aspectManual")} ·{" "}
-          {aspectRatio}
-        </span>
-        {detectedAspect && aspectMode === "manual" && (
-          <button
-            type="button"
-            className="rounded border border-sky-800 px-2 py-1 text-sm text-sky-300 hover:bg-sky-950/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
-            onClick={resetToDetected}
-          >
-            {t("resetToDetected", { aspect: detectedAspect })}
-          </button>
-        )}
-        {aspectError && (
-          <span className="text-sm text-red-400" role="alert">
-            {aspectError}
-          </span>
-        )}
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-[1fr_240px]">
-        <RoiStage
-          imageUrl={imageUrl}
-          aspectRatio={aspectRatio}
-          rois={rois}
-          selectedId={selectedId}
-          defaultLabel={(n) => t("defaultRoiLabel", { n })}
-          defaultCategory={t("defaultCategory")}
-          onSelect={setSelectedId}
-          onImageLoaded={onImageLoaded}
-          onAddRoi={addRoi}
-          onUpdateRoi={updateRoi}
-          onImportClick={() => fileInputRef.current?.click()}
-        />
-        <aside className="flex flex-col gap-3 rounded border border-slate-800 bg-slate-900/40 p-3 text-sm">
+      <div className="mt-2 grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_220px]">
+        <div className="min-h-0 min-w-0">
+          <RoiStage
+            imageUrl={imageUrl}
+            aspectRatio={aspectRatio}
+            rois={rois}
+            selectedId={selectedId}
+            defaultLabel={(n) => t("defaultRoiLabel", { n })}
+            defaultCategory={t("defaultCategory")}
+            onSelect={setSelectedId}
+            onImageLoaded={onImageLoaded}
+            onAddRoi={addRoi}
+            onUpdateRoi={updateRoi}
+            onImportClick={() => fileInputRef.current?.click()}
+          />
+        </div>
+        <aside className="flex min-h-0 flex-col gap-2 overflow-auto rounded border border-slate-800 bg-slate-900/40 p-2.5 text-sm lg:max-h-none">
           <h2 className="font-medium text-slate-300">{t("selection")}</h2>
           {selected ? (
             <>
@@ -482,7 +500,7 @@ export default function App() {
           ) : (
             <p className="text-slate-500">{t("selectionHint")}</p>
           )}
-          <div className="mt-auto border-t border-slate-800 pt-3 text-xs text-slate-500">
+          <div className="mt-auto border-t border-slate-800 pt-2 text-xs text-slate-500">
             <p>{t("roiCount", { count: rois.length })}</p>
             <p className="mt-1">{t("shortcutsHint")}</p>
           </div>
