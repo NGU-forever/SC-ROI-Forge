@@ -9,7 +9,7 @@ export const zh: Messages = {
 
   importImage: "导入图片",
   undo: "撤销",
-  redo: "重做",
+  redo: "回退",
   exportJson: "导出 JSON",
   suggestAi: "AI 建议标定",
   suggesting: "正在建议…",
