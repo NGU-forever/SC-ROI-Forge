@@ -9,7 +9,7 @@ import { RoiStage } from "@/canvas/RoiStage";
 import { useRoiStore } from "@/canvas/useRoiStore";
 import { ChatPanel, type ChatMessage } from "@/chat/ChatPanel";
 import { RoiInspectorBar } from "@/chat/RoiInspectorBar";
-import { downloadPack } from "@/export/downloadPack";
+import { downloadExportZip, loadHtmlImage } from "@/export/downloadPack";
 import { useI18n, type Locale } from "@/i18n";
 import { chatRois } from "@/lib/api";
 import { randomRoiColor } from "@/lib/roiColor";
@@ -88,6 +88,7 @@ export default function App() {
   );
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [aiBusy, setAiBusy] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastImageUrlRef = useRef<string | null>(null);
 
@@ -213,17 +214,25 @@ export default function App() {
     applyAspect(detectedAspect);
   };
 
-  const handleExport = () => {
-    downloadPack(
-      aspectRatio,
-      rois.map((r) => ({
-        id: r.id,
-        label: r.label,
-        category: r.category,
-        color: r.color,
-        norm: r.norm,
-      })),
-    );
+  const handleExport = async () => {
+    if (!imageUrl || rois.length === 0 || exportBusy) return;
+    setExportBusy(true);
+    try {
+      const image = await loadHtmlImage(imageUrl);
+      await downloadExportZip({
+        aspect_ratio: aspectRatio,
+        rois: rois.map((r) => ({
+          id: r.id,
+          label: r.label,
+          category: r.category,
+          color: r.color,
+          norm: r.norm,
+        })),
+        image,
+      });
+    } finally {
+      setExportBusy(false);
+    }
   };
 
   const chatDisabledReason = !imageUrl
@@ -358,10 +367,11 @@ export default function App() {
           <button
             type="button"
             className="rounded bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-40"
-            disabled={!imageUrl || rois.length === 0}
-            onClick={handleExport}
+            disabled={!imageUrl || rois.length === 0 || exportBusy}
+            title={!imageUrl ? t("exportNeedImage") : undefined}
+            onClick={() => void handleExport()}
           >
-            {t("exportJson")}
+            {exportBusy ? t("exporting") : t("export")}
           </button>
         </div>
       </header>
