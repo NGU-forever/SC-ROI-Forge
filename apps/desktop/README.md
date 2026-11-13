@@ -50,14 +50,24 @@ npm run dev
 
 `tauri dev` runs `apps/web` on **`http://127.0.0.1:1420`** (see `src-tauri/tauri.conf.json`). Vite dev proxy still forwards `/health` and `/v1` to port 8000.
 
-## Production / Windows EXE
+## Production / Windows EXE（玩家用户包）
 
-1. Ensure `apps/web` builds: production sets `VITE_API_URL=http://127.0.0.1:8000` in `beforeBuildCommand` so fetches hit the local API (no Vite proxy in the bundled `dist/`).
-2. From `apps/desktop`:
+1. **Build API sidecar** (Windows) — see `src-tauri/binaries/README.md` (PyInstaller → `sc-roi-api-x86_64-pc-windows-msvc.exe`).
+2. Ensure `apps/web` builds: production sets `VITE_API_URL=http://127.0.0.1:8000` in `beforeBuildCommand`.
+3. From `apps/desktop`:
 
 ```powershell
 npm run build
 ```
+
+4. Pack the end-user ZIP (from repo root):
+
+```powershell
+.\scripts\pack-windows-user-zip.ps1
+```
+
+→ `dist/windows-user-pack/SC-ROI-Forge-windows.zip`  
+Players unzip and double-click `安装并启动.bat` (templates in `deploy/windows/`).
 
 Artifacts (typical):
 
@@ -65,17 +75,15 @@ Artifacts (typical):
 - `apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe`
 - `apps/desktop/src-tauri/target/release/sc-roi-forge-desktop.exe`
 
-Exact paths depend on Tauri bundler settings and target triple.
+### Sidecar binary (required for full offline pack)
 
-### Sidecar binary (optional)
-
-Place a PyInstaller (or other) build at:
+Place a PyInstaller build at:
 
 `apps/desktop/src-tauri/binaries/sc-roi-api-<TARGET_TRIPLE>[.exe]`
 
 Example Windows name: `sc-roi-api-x86_64-pc-windows-msvc.exe`
 
-On app startup, `src/lib.rs` attempts `shell().sidecar("sc-roi-api")`. If missing, it logs and continues — **start the API separately** for MVP.
+On app startup, `src/lib.rs` spawns `shell().sidecar("sc-roi-api")` and **stops it on exit**. If the binary is missing, the UI still opens; start uvicorn separately for API features.
 
 ## Layout
 

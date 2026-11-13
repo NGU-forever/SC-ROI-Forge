@@ -1,8 +1,25 @@
-# Sidecar binaries (placeholder)
+# Sidecar binaries
 
-Tauri expects target-triple suffixed executables here, e.g.:
+Tauri `externalBin` expects a **target-triple** suffix:
 
-- `sc-roi-api-x86_64-pc-windows-msvc.exe` (Windows release)
-- `sc-roi-api-x86_64-apple-darwin` (macOS dev smoke)
+| Platform | Filename |
+|----------|----------|
+| Windows | `sc-roi-api-x86_64-pc-windows-msvc.exe` |
+| macOS Intel | `sc-roi-api-x86_64-apple-darwin` |
+| macOS ARM | `sc-roi-api-aarch64-apple-darwin` |
+| Linux | `sc-roi-api-x86_64-unknown-linux-gnu` |
 
-MVP does **not** ship a PyInstaller build. Drop a built `sc-roi-api` binary when ready, or start the API with uvicorn beside the desktop shell (documented in `../README.md`).
+## Build API EXE (Windows)
+
+From `apps/api` (Windows, with project deps installed):
+
+```powershell
+pip install pyinstaller
+pip install -e .
+pyinstaller packaging/sc-roi-api.spec
+copy dist\sc-roi-api.exe ..\desktop\src-tauri\binaries\sc-roi-api-x86_64-pc-windows-msvc.exe
+```
+
+Then `cd apps/desktop && npm run build`, and run `scripts/pack-windows-user-zip.ps1` from the repo root.
+
+Without a sidecar binary the UI still starts; API features need the sidecar or a separate uvicorn process.

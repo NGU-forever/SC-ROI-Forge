@@ -65,7 +65,22 @@ px[tier] = round(norm * dimension)  # 导入时亦由 norm 重算，不信赖陈
 - 需要用户自备 **OpenAI 兼容** API Key（请求头 `X-API-Key` 或环境变量 `SC_ROI_LLM_API_KEY`）；`SC_ROI_LLM_BASE_URL`、`SC_ROI_LLM_MODEL` 见 [`.env.example`](.env.example)。
 - 设置 `SC_ROI_AGENT_ENABLED=0`（或 `false`）可完全关闭 Agent；**无 Key / 关闭开关时仍可手动画框并导出**。
 
-## 快速开始
+## 给玩家（不会装开发环境）
+
+**Windows：** 解压发布的 `SC-ROI-Forge-windows.zip` → 双击 `安装并启动.bat`（首次会检查 WebView2，并可建桌面快捷方式）→ 之后点 EXE / `启动.bat` 即可。不需要 Node / Python / Rust。
+
+用户包脚本模板在 [`deploy/windows/`](deploy/windows/)。维护者在 Windows 上构建 EXE + API 侧车后，运行 [`scripts/pack-windows-user-zip.ps1`](scripts/pack-windows-user-zip.ps1) 打 ZIP。说明见 [`apps/desktop/README.md`](apps/desktop/README.md)。
+
+**macOS / Linux：** 用简单脚本启动（无需 `.app` 安装器）：
+
+```bash
+chmod +x deploy/unix/start.sh
+./deploy/unix/start.sh
+```
+
+（有打包好的二进制就起二进制；在本仓库开发时会尝试用 `apps/api` 的 `.venv` 起 API，并打开浏览器。）
+
+## 快速开始（开发者）
 
 **前置：** Node.js 20+、Python 3.11+、（可选）Rust + Docker。
 
@@ -132,10 +147,13 @@ Tauri 加载与浏览器相同的 SPA；API 默认 `http://127.0.0.1:8000`。侧
 ```text
 packages/schema   # 共享画幅 / 导出 JSON 逻辑（TS）
 apps/web          # React + Konva 标定 UI
-apps/api          # FastAPI、export-preview、可选 Agent
-apps/desktop      # Tauri 2 壳 + API sidecar 钩子
+apps/api          # FastAPI、export-preview、可选 Agent、PyInstaller 规格
+apps/desktop      # Tauri 2 壳 + API sidecar
+deploy/windows    # 玩家用 bat + 说明
+deploy/unix       # macOS/Linux start.sh
 deploy/docker     # Compose + Dockerfile
-docs/             # 设计规格与 MVP 计划
+scripts/          # 打 Windows 用户 ZIP 等
+docs/             # 设计规格与计划
 ```
 
 ## 背景

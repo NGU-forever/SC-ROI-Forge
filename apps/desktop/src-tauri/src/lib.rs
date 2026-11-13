@@ -1,21 +1,43 @@
+use std::sync::Mutex;
+
+use tauri::{AppHandle, Manager, RunEvent};
+use tauri_plugin_shell::process::CommandChild;
 use tauri_plugin_shell::ShellExt;
 
-/// Try to spawn the packaged `sc-roi-api` sidecar (PyInstaller follow-up).
-/// MVP: binary may be absent; devs often start uvicorn separately — see README.
-fn try_spawn_api_sidecar(handle: &tauri::AppHandle) {
+struct ApiSidecar(Mutex<Option<CommandChild>>);
+
+fn try_spawn_api_sidecar(handle: &AppHandle) {
     let shell = handle.shell();
     match shell.sidecar("sc-roi-api") {
-        Ok(cmd) => {
-            if let Err(err) = cmd.spawn() {
-                eprintln!("[sc-roi-forge] sc-roi-api sidecar failed to spawn: {err}");
-            } else {
-                println!("[sc-roi-forge] sc-roi-api sidecar spawned (expected 127.0.0.1:8000)");
+        Ok(cmd) => match cmd.spawn() {
+            Ok((_rx, child)) => {
+                if let Some(state) = handle.try_state::<ApiSidecar>() {
+                    *state.0.lock().expect("sidecar mutex") = Some(child);
+                }
+                println!("[sc-roi-forge] sc-roi-api sidecar spawned (127.0.0.1:8000)");
             }
-        }
+            Err(err) => {
+                eprintln!("[sc-roi-forge] sc-roi-api sidecar failed to spawn: {err}");
+            }
+        },
         Err(err) => {
             eprintln!(
-                "[sc-roi-forge] sc-roi-api sidecar not bundled (MVP ok): {err}. See apps/desktop/README.md"
+                "[sc-roi-forge] sc-roi-api sidecar not bundled: {err}. See apps/desktop/README.md"
             );
+        }
+    }
+}
+
+fn kill_api_sidecar(handle: &AppHandle) {
+    if let Some(state) = handle.try_state::<ApiSidecar>() {
+        if let Ok(mut guard) = state.0.lock() {
+            if let Some(child) = guard.take() {
+                if let Err(err) = child.kill() {
+                    eprintln!("[sc-roi-forge] failed to stop sc-roi-api: {err}");
+                } else {
+                    println!("[sc-roi-forge] sc-roi-api sidecar stopped");
+                }
+            }
         }
     }
 }
@@ -24,10 +46,16 @@ fn try_spawn_api_sidecar(handle: &tauri::AppHandle) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .manage(ApiSidecar(Mutex::new(None)))
         .setup(|app| {
             try_spawn_api_sidecar(app.handle());
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running SC ROI Forge desktop");
+        .build(tauri::generate_context!())
+        .expect("error while building SC ROI Forge desktop")
+        .run(|app_handle, event| {
+            if let RunEvent::Exit = event {
+                kill_api_sidecar(&app_handle);
+            }
+        });
 }

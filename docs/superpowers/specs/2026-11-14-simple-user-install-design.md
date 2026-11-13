@@ -1,7 +1,7 @@
 # Simple User Install (Windows Pack + macOS/Linux Script) Design Spec
 
 **Date:** 2026-11-14  
-**Status:** Draft pending user review  
+**Status:** Approved  
 **Parent:** [`2026-11-13-sc-roi-forge-design.md`](./2026-11-13-sc-roi-forge-design.md)  
 **Repo:** https://github.com/NGU-forever/SC-ROI-Forge
 
