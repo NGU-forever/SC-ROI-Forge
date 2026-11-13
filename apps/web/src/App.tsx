@@ -1,9 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ASPECT_PRESETS, detectAspectRatio, parseAspectRatio } from "@sc-roi/schema";
+import {
+  ASPECT_PRESETS,
+  applyRoiOps,
+  detectAspectRatio,
+  parseAspectRatio,
+} from "@sc-roi/schema";
 import { RoiStage } from "@/canvas/RoiStage";
 import { useRoiStore } from "@/canvas/useRoiStore";
+import { ChatPanel, type ChatMessage } from "@/chat/ChatPanel";
+import { RoiInspectorBar } from "@/chat/RoiInspectorBar";
 import { downloadPack } from "@/export/downloadPack";
-import { suggestRois } from "@/lib/api";
+import { chatRois } from "@/lib/api";
 import { randomRoiColor } from "@/lib/roiColor";
 
 const PRESET_OPTIONS = [...ASPECT_PRESETS, "custom"] as const;
@@ -40,11 +47,8 @@ export default function App() {
   const [apiKey, setApiKey] = useState(
     () => localStorage.getItem(API_KEY_STORAGE) ?? "",
   );
-  const [aiPrompt, setAiPrompt] = useState(
-    "Roughly find HUD regions and propose labeled ROI boxes (norm 0..1).",
-  );
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [aiBusy, setAiBusy] = useState(false);
-  const [aiError, setAiError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastImageUrlRef = useRef<string | null>(null);
 
@@ -60,6 +64,7 @@ export default function App() {
       clearRois();
       setSelectedId(null);
       setAspectMode("detected");
+      setMessages([]);
       setImageUrl(url);
     },
     [clearRois, revokePrevious, setImageUrl],
@@ -116,7 +121,8 @@ export default function App() {
         redo();
       }
       if (e.key === "Delete" || e.key === "Backspace") {
-        if (selectedId && document.activeElement?.tagName !== "INPUT") {
+        const tag = document.activeElement?.tagName;
+        if (selectedId && tag !== "INPUT" && tag !== "TEXTAREA") {
           removeRoi(selectedId);
           setSelectedId(null);
         }
@@ -181,14 +187,95 @@ export default function App() {
     );
   };
 
+  const chatDisabledReason = !imageUrl
+    ? "Import a screenshot first"
+    : !apiKey.trim()
+      ? "Set API key to enable"
+      : undefined;
+
+  const handleChatSend = async (text: string) => {
+    if (!imageUrl || !apiKey.trim() || aiBusy) return;
+    const history: ChatMessage[] = [...messages, { role: "user", content: text }];
+    setMessages(history);
+    setAiBusy(true);
+    try {
+      const blob = await fetch(imageUrl).then((r) => r.blob());
+      const payloadMessages = history.map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
+      const { message, ops } = await chatRois({
+        file: blob,
+        aspectRatio,
+        messages: payloadMessages,
+        rois: rois.map((r) => ({
+          id: r.id,
+          label: r.label,
+          category: r.category,
+          norm: r.norm,
+        })),
+        apiKey: apiKey.trim(),
+      });
+      const { rois: next, summary } = applyRoiOps(rois, ops);
+      const withColors = next.map((r) => ({
+        id: r.id,
+        label: r.label,
+        category: r.category,
+        color: r.color ?? randomRoiColor(),
+        norm: r.norm,
+      }));
+      const changed =
+        withColors.length !== rois.length ||
+        withColors.some((r, i) => {
+          const cur = rois[i];
+          return (
+            !cur ||
+            cur.id !== r.id ||
+            cur.label !== r.label ||
+            cur.category !== r.category ||
+            cur.norm.x !== r.norm.x ||
+            cur.norm.y !== r.norm.y ||
+            cur.norm.w !== r.norm.w ||
+            cur.norm.h !== r.norm.h
+          );
+        });
+      if (changed) {
+        pushRois(withColors);
+        if (selectedId && !withColors.some((r) => r.id === selectedId)) {
+          setSelectedId(null);
+        }
+      }
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: message || (summary ? "Updated ROIs." : "Done."),
+          opsSummary: summary || undefined,
+        },
+      ]);
+    } catch (e) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: e instanceof Error ? e.message : String(e),
+        },
+      ]);
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
   const selected = rois.find((r) => r.id === selectedId);
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-7xl flex-col gap-4 p-4">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4">
+    <div className="mx-auto flex min-h-screen max-w-[90rem] flex-col gap-3 p-4 text-stone-900">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-200 pb-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">SC-ROI Forge</h1>
-          <p className="text-sm text-slate-400">Manual HUD ROI calibration</p>
+          <h1 className="text-xl font-semibold tracking-tight text-stone-900">
+            SC-ROI Forge
+          </h1>
+          <p className="text-sm text-stone-500">Manual HUD ROI calibration</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <input
@@ -207,104 +294,56 @@ export default function App() {
           />
           <button
             type="button"
-            className="rounded bg-sky-600 px-3 py-1.5 text-sm font-medium hover:bg-sky-500"
+            className="rounded bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700"
             onClick={() => fileInputRef.current?.click()}
           >
             Import image
           </button>
           <button
             type="button"
-            className="rounded border border-slate-600 px-3 py-1.5 text-sm hover:bg-slate-800"
+            className="rounded border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-700 hover:bg-stone-50"
             onClick={undo}
           >
             Undo
           </button>
           <button
             type="button"
-            className="rounded border border-slate-600 px-3 py-1.5 text-sm hover:bg-slate-800"
+            className="rounded border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-700 hover:bg-stone-50"
             onClick={redo}
           >
             Redo
           </button>
           <button
             type="button"
-            className="rounded bg-emerald-600 px-3 py-1.5 text-sm font-medium hover:bg-emerald-500 disabled:opacity-40"
+            className="rounded bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-40"
             disabled={!imageUrl || rois.length === 0}
             onClick={handleExport}
           >
             Export JSON
           </button>
-          <button
-            type="button"
-            className="rounded border border-violet-600 px-3 py-1.5 text-sm text-violet-200 hover:bg-violet-950/50 disabled:opacity-40"
-            disabled={!imageUrl || !apiKey.trim() || aiBusy}
-            title={!apiKey.trim() ? "Set API key to enable" : "Optional cloud AI"}
-            onClick={async () => {
-              if (!imageUrl) return;
-              setAiBusy(true);
-              setAiError(null);
-              try {
-                const blob = await fetch(imageUrl).then((r) => r.blob());
-                const { rois: drafts } = await suggestRois({
-                  file: blob,
-                  prompt: aiPrompt,
-                  aspectRatio,
-                  apiKey: apiKey.trim(),
-                });
-                pushRois(
-                  drafts.map((d) => ({
-                    id: d.id,
-                    label: d.label,
-                    category: d.category,
-                    color: randomRoiColor(),
-                    norm: d.norm,
-                  })),
-                );
-              } catch (e) {
-                setAiError(e instanceof Error ? e.message : String(e));
-              } finally {
-                setAiBusy(false);
-              }
-            }}
-          >
-            {aiBusy ? "Suggesting…" : "Suggest with AI"}
-          </button>
-        </div>
-        <div className="flex flex-wrap items-end gap-2">
-          <label className="flex flex-col gap-1 text-xs text-slate-400">
-            LLM API key (local only)
-            <input
-              type="password"
-              className="w-56 rounded border border-slate-600 bg-slate-900 px-2 py-1.5 text-sm text-slate-100"
-              value={apiKey}
-              onChange={(e) => {
-                const v = e.target.value;
-                setApiKey(v);
-                localStorage.setItem(API_KEY_STORAGE, v);
-              }}
-              placeholder="sk-…"
-              autoComplete="off"
-            />
-          </label>
-          <label className="flex min-w-[16rem] flex-1 flex-col gap-1 text-xs text-slate-400">
-            AI prompt
-            <input
-              className="rounded border border-slate-600 bg-slate-900 px-2 py-1.5 text-sm text-slate-100"
-              value={aiPrompt}
-              onChange={(e) => setAiPrompt(e.target.value)}
-            />
-          </label>
-          {aiError && (
-            <span className="max-w-md text-xs text-red-400">{aiError}</span>
-          )}
         </div>
       </header>
 
       <div className="flex flex-wrap items-end gap-3">
-        <label className="flex flex-col gap-1 text-sm">
+        <label className="flex flex-col gap-1 text-xs text-stone-500">
+          LLM API key (local only)
+          <input
+            type="password"
+            className="w-56 rounded border border-stone-300 bg-white px-2 py-1.5 text-sm text-stone-900"
+            value={apiKey}
+            onChange={(e) => {
+              const v = e.target.value;
+              setApiKey(v);
+              localStorage.setItem(API_KEY_STORAGE, v);
+            }}
+            placeholder="sk-…"
+            autoComplete="off"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-sm text-stone-700">
           Aspect preset
           <select
-            className="rounded border border-slate-600 bg-slate-900 px-2 py-1.5"
+            className="rounded border border-stone-300 bg-white px-2 py-1.5 text-stone-900"
             value={preset}
             onChange={(e) => onPresetChange(e.target.value)}
           >
@@ -316,10 +355,10 @@ export default function App() {
           </select>
         </label>
         {preset === "custom" && (
-          <label className="flex flex-col gap-1 text-sm">
+          <label className="flex flex-col gap-1 text-sm text-stone-700">
             Custom A:B
             <input
-              className="w-28 rounded border border-slate-600 bg-slate-900 px-2 py-1.5"
+              className="w-28 rounded border border-stone-300 bg-white px-2 py-1.5 text-stone-900"
               value={customAspect}
               onChange={(e) => setCustomAspect(e.target.value)}
               onBlur={onCustomAspectBlur}
@@ -329,8 +368,8 @@ export default function App() {
         <span
           className={`rounded px-2 py-1 text-xs font-medium ${
             aspectMode === "detected"
-              ? "bg-sky-900/60 text-sky-300"
-              : "bg-amber-900/50 text-amber-200"
+              ? "bg-sky-100 text-sky-800"
+              : "bg-amber-100 text-amber-900"
           }`}
         >
           {aspectMode === "detected" ? "detected" : "manual"} · {aspectRatio}
@@ -338,86 +377,50 @@ export default function App() {
         {detectedAspect && aspectMode === "manual" && (
           <button
             type="button"
-            className="text-sm text-sky-400 underline"
+            className="text-sm text-sky-700 underline"
             onClick={resetToDetected}
           >
             Reset to detected ({detectedAspect})
           </button>
         )}
         {aspectError && (
-          <span className="text-sm text-red-400">{aspectError}</span>
+          <span className="text-sm text-red-600">{aspectError}</span>
         )}
+        <span className="ml-auto text-xs text-stone-500">
+          {rois.length} ROI(s) · Paste · Wheel zoom · Space/MMB pan · ⌘Z · Del
+        </span>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_240px]">
-        <RoiStage
-          imageUrl={imageUrl}
-          aspectRatio={aspectRatio}
-          rois={rois}
-          selectedId={selectedId}
-          onSelect={setSelectedId}
-          onImageLoaded={onImageLoaded}
-          onAddRoi={addRoi}
-          onUpdateRoi={updateRoi}
+      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[20rem_1fr]">
+        <ChatPanel
+          messages={messages}
+          busy={aiBusy}
+          disabled={!imageUrl || !apiKey.trim()}
+          disabledReason={chatDisabledReason}
+          onSend={handleChatSend}
         />
-        <aside className="flex flex-col gap-3 rounded border border-slate-800 bg-slate-900/40 p-3 text-sm">
-          <h2 className="font-medium text-slate-300">Selection</h2>
-          {selected ? (
-            <>
-              <label className="flex flex-col gap-1">
-                Label
-                <input
-                  className="rounded border border-slate-600 bg-slate-950 px-2 py-1"
-                  value={selected.label}
-                  onChange={(e) =>
-                    patchRoiMeta(selected.id, { label: e.target.value })
-                  }
-                />
-              </label>
-              <label className="flex flex-col gap-1">
-                Category
-                <input
-                  className="rounded border border-slate-600 bg-slate-950 px-2 py-1"
-                  value={selected.category}
-                  onChange={(e) =>
-                    patchRoiMeta(selected.id, { category: e.target.value })
-                  }
-                />
-              </label>
-              <label className="flex flex-col gap-1">
-                Color
-                <input
-                  type="color"
-                  className="h-9 w-full cursor-pointer rounded border border-slate-600 bg-slate-950"
-                  value={selected.color}
-                  onChange={(e) =>
-                    patchRoiMeta(selected.id, { color: e.target.value })
-                  }
-                />
-              </label>
-              <button
-                type="button"
-                className="mt-1 rounded border border-red-800 py-1 text-red-300 hover:bg-red-950/40"
-                onClick={() => {
-                  removeRoi(selected.id);
-                  setSelectedId(null);
-                }}
-              >
-                Delete ROI
-              </button>
-            </>
-          ) : (
-            <p className="text-slate-500">
-              Drag on the canvas to draw a box. Click a box to edit.
-            </p>
+        <div className="relative min-h-[28rem]">
+          <RoiStage
+            imageUrl={imageUrl}
+            aspectRatio={aspectRatio}
+            rois={rois}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            onImageLoaded={onImageLoaded}
+            onAddRoi={addRoi}
+            onUpdateRoi={updateRoi}
+          />
+          {selected && (
+            <RoiInspectorBar
+              roi={selected}
+              onPatchMeta={patchRoiMeta}
+              onDelete={(id) => {
+                removeRoi(id);
+                setSelectedId(null);
+              }}
+            />
           )}
-          <div className="mt-auto border-t border-slate-800 pt-3 text-xs text-slate-500">
-            <p>{rois.length} ROI(s)</p>
-            <p className="mt-1">
-              Paste · Wheel zoom · Space/MMB pan · Ctrl/Cmd+Z · Del
-            </p>
-          </div>
-        </aside>
+        </div>
       </div>
     </div>
   );

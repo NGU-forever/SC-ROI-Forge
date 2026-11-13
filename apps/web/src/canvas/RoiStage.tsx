@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Image as KonvaImage,
   Layer,
+  Line,
   Rect as KonvaRect,
   Stage,
   Text,
@@ -16,6 +17,59 @@ const MIN_BOX = 8;
 const MIN_SCALE = 0.25;
 const MAX_SCALE = 4;
 const ZOOM_FACTOR = 1.1;
+
+/** Warm yellowish paper (not pure white) */
+const PAPER = "#f2e6c9";
+const GRID_MINOR = "rgba(176, 148, 96, 0.35)";
+const GRID_MAJOR = "rgba(150, 118, 64, 0.45)";
+const GRID_MINOR_STEP = 20;
+const GRID_MAJOR_STEP = 100;
+
+function PaperGrid({ width, height }: { width: number; height: number }) {
+  const minors: ReactNode[] = [];
+  const majors: ReactNode[] = [];
+  for (let x = 0; x <= width; x += GRID_MINOR_STEP) {
+    const major = x % GRID_MAJOR_STEP === 0;
+    const line = (
+      <Line
+        key={`v-${x}`}
+        points={[x, 0, x, height]}
+        stroke={major ? GRID_MAJOR : GRID_MINOR}
+        strokeWidth={major ? 1.25 : 0.75}
+        listening={false}
+      />
+    );
+    (major ? majors : minors).push(line);
+  }
+  for (let y = 0; y <= height; y += GRID_MINOR_STEP) {
+    const major = y % GRID_MAJOR_STEP === 0;
+    const line = (
+      <Line
+        key={`h-${y}`}
+        points={[0, y, width, y]}
+        stroke={major ? GRID_MAJOR : GRID_MINOR}
+        strokeWidth={major ? 1.25 : 0.75}
+        listening={false}
+      />
+    );
+    (major ? majors : minors).push(line);
+  }
+
+  return (
+    <>
+      <KonvaRect
+        x={0}
+        y={0}
+        width={width}
+        height={height}
+        fill={PAPER}
+        listening={false}
+      />
+      {minors}
+      {majors}
+    </>
+  );
+}
 
 type View = { scale: number; x: number; y: number };
 
@@ -249,7 +303,7 @@ export function RoiStage({
 
   if (!imageUrl) {
     return (
-      <div className="flex min-h-[320px] items-center justify-center rounded border border-dashed border-slate-700 bg-slate-950 p-8 text-slate-500">
+      <div className="roi-canvas-paper flex min-h-[320px] items-center justify-center rounded border border-amber-900/20 p-8 text-amber-950/50">
         Import or paste a screenshot to begin.
       </div>
     );
@@ -263,7 +317,7 @@ export function RoiStage({
 
   return (
     <div
-      className="overflow-hidden rounded border border-slate-700 bg-slate-950"
+      className="roi-canvas-paper overflow-hidden rounded border border-amber-900/25"
       style={{ maxHeight: "calc(100vh - 12rem)" }}
     >
       <Stage
@@ -284,6 +338,7 @@ export function RoiStage({
         style={{ cursor }}
       >
         <Layer>
+          <PaperGrid width={stageW} height={stageH} />
           {image && (
             <KonvaImage
               image={image}
@@ -356,7 +411,9 @@ export function RoiStage({
                 y={Math.max(0, rect.y - 16)}
                 text={roi.label}
                 fontSize={12}
-                fill="#e2e8f0"
+                fill="#1c1917"
+                stroke="#f2e6c9"
+                strokeWidth={0.5}
                 listening={false}
               />
             );
