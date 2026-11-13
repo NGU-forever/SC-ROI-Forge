@@ -12,6 +12,7 @@ class RoiIn(BaseModel):
     id: str
     label: str
     category: str
+    color: str | None = None
     norm: RectNorm
 
 

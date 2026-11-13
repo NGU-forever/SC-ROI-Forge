@@ -4,6 +4,8 @@ export type RoiInput = {
   id: string;
   label: string;
   category: string;
+  /** `#rrggbb`; omitted on legacy packs → export defaults to `#22c55e` */
+  color?: string;
   norm: Rect;
 };
 export type RoiExport = RoiInput & { px: Record<Tier, Rect> };

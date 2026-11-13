@@ -8,6 +8,7 @@ export function buildExportPack(input: {
   const resolutions = tierResolutions(input.aspect_ratio);
   const rois = input.rois.map((roi) => ({
     ...roi,
+    color: (roi.color ?? "#22c55e").toLowerCase(),
     px: {
       "1k": normToPx(roi.norm, resolutions["1k"].w, resolutions["1k"].h),
       "2k": normToPx(roi.norm, resolutions["2k"].w, resolutions["2k"].h),

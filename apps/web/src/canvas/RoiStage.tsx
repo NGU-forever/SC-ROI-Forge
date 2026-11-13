@@ -9,9 +9,15 @@ import {
 } from "react-konva";
 import type Konva from "konva";
 import type { Roi } from "./useRoiStore";
+import { hexWithAlpha, randomRoiColor } from "@/lib/roiColor";
 import { normFromStage, stageFromNorm, stageSize } from "@/lib/stageSize";
 
 const MIN_BOX = 8;
+const MIN_SCALE = 0.25;
+const MAX_SCALE = 4;
+const ZOOM_FACTOR = 1.1;
+
+type View = { scale: number; x: number; y: number };
 
 type Props = {
   imageUrl: string | null;
@@ -41,6 +47,10 @@ function useHtmlImage(url: string | null) {
   return image;
 }
 
+function clampScale(s: number) {
+  return Math.max(MIN_SCALE, Math.min(MAX_SCALE, s));
+}
+
 export function RoiStage({
   imageUrl,
   aspectRatio,
@@ -55,6 +65,10 @@ export function RoiStage({
   const image = useHtmlImage(imageUrl);
   const transformerRef = useRef<Konva.Transformer>(null);
   const stageRef = useRef<Konva.Stage>(null);
+  const [view, setView] = useState<View>({ scale: 1, x: 0, y: 0 });
+  const [spaceDown, setSpaceDown] = useState(false);
+  const [panning, setPanning] = useState(false);
+  const panLast = useRef<{ x: number; y: number } | null>(null);
   const [drawStart, setDrawStart] = useState<{ x: number; y: number } | null>(
     null,
   );
@@ -66,10 +80,38 @@ export function RoiStage({
   } | null>(null);
 
   useEffect(() => {
+    setView({ scale: 1, x: 0, y: 0 });
+  }, [imageUrl, aspectRatio]);
+
+  useEffect(() => {
     if (image) {
       onImageLoaded(image.naturalWidth, image.naturalHeight);
     }
   }, [image, onImageLoaded]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code === "Space" && !e.repeat) {
+        const tag = (e.target as HTMLElement)?.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA") return;
+        e.preventDefault();
+        setSpaceDown(true);
+      }
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code === "Space") {
+        setSpaceDown(false);
+        setPanning(false);
+        panLast.current = null;
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+    };
+  }, []);
 
   useEffect(() => {
     const tr = transformerRef.current;
@@ -84,12 +126,16 @@ export function RoiStage({
       tr.nodes([]);
     }
     tr.getLayer()?.batchDraw();
-  }, [selectedId, rois, stageW, stageH]);
+  }, [selectedId, rois, stageW, stageH, view]);
 
-  const pointerPos = useCallback(() => {
+  const stagePointer = useCallback(() => {
     const stage = stageRef.current;
     if (!stage) return null;
-    return stage.getPointerPosition();
+    const pos = stage.getPointerPosition();
+    if (!pos) return null;
+    const transform = stage.getAbsoluteTransform().copy();
+    transform.invert();
+    return transform.point(pos);
   }, []);
 
   const clampStage = (x: number, y: number) => ({
@@ -97,11 +143,48 @@ export function RoiStage({
     y: Math.max(0, Math.min(stageH, y)),
   });
 
+  const handleWheel = (e: Konva.KonvaEventObject<WheelEvent>) => {
+    e.evt.preventDefault();
+    const stage = stageRef.current;
+    if (!stage) return;
+    const pointer = stage.getPointerPosition();
+    if (!pointer) return;
+
+    const oldScale = view.scale;
+    const direction = e.evt.deltaY > 0 ? -1 : 1;
+    const newScale = clampScale(
+      direction > 0 ? oldScale * ZOOM_FACTOR : oldScale / ZOOM_FACTOR,
+    );
+    if (newScale === oldScale) return;
+
+    const mousePointTo = {
+      x: (pointer.x - view.x) / oldScale,
+      y: (pointer.y - view.y) / oldScale,
+    };
+    setView({
+      scale: newScale,
+      x: pointer.x - mousePointTo.x * newScale,
+      y: pointer.y - mousePointTo.y * newScale,
+    });
+  };
+
   const handleMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
     if (!imageUrl) return;
+    const isMiddle = e.evt.button === 1;
+    if (isMiddle || spaceDown) {
+      e.evt.preventDefault();
+      setPanning(true);
+      panLast.current = { x: e.evt.clientX, y: e.evt.clientY };
+      setDrawStart(null);
+      setDrawPreview(null);
+      return;
+    }
+    if (e.evt.button !== 0) return;
+    if (spaceDown) return;
+
     const cls = e.target.getClassName();
     if (cls !== "Stage" && cls !== "Layer") return;
-    const pos = pointerPos();
+    const pos = stagePointer();
     if (!pos) return;
     const p = clampStage(pos.x, pos.y);
     setDrawStart(p);
@@ -109,9 +192,16 @@ export function RoiStage({
     onSelect(null);
   };
 
-  const handleMouseMove = () => {
+  const handleMouseMove = (e: Konva.KonvaEventObject<MouseEvent>) => {
+    if (panning && panLast.current) {
+      const dx = e.evt.clientX - panLast.current.x;
+      const dy = e.evt.clientY - panLast.current.y;
+      panLast.current = { x: e.evt.clientX, y: e.evt.clientY };
+      setView((v) => ({ ...v, x: v.x + dx, y: v.y + dy }));
+      return;
+    }
     if (!drawStart) return;
-    const pos = pointerPos();
+    const pos = stagePointer();
     if (!pos) return;
     const p = clampStage(pos.x, pos.y);
     const x = Math.min(drawStart.x, p.x);
@@ -140,6 +230,7 @@ export function RoiStage({
       id,
       label: `roi_${rois.length + 1}`,
       category: "general",
+      color: randomRoiColor(),
       norm,
     });
     onSelect(id);
@@ -148,6 +239,11 @@ export function RoiStage({
   };
 
   const handleMouseUp = () => {
+    if (panning) {
+      setPanning(false);
+      panLast.current = null;
+      return;
+    }
     if (drawStart) finishDraw();
   };
 
@@ -159,20 +255,33 @@ export function RoiStage({
     );
   }
 
+  const cursor = panning
+    ? "grabbing"
+    : spaceDown
+      ? "grab"
+      : "crosshair";
+
   return (
     <div
-      className="overflow-auto rounded border border-slate-700 bg-slate-950"
+      className="overflow-hidden rounded border border-slate-700 bg-slate-950"
       style={{ maxHeight: "calc(100vh - 12rem)" }}
     >
       <Stage
         ref={stageRef}
         width={stageW}
         height={stageH}
+        scaleX={view.scale}
+        scaleY={view.scale}
+        x={view.x}
+        y={view.y}
+        onWheel={handleWheel}
         onMouseDown={handleMouseDown}
         onMousemove={handleMouseMove}
         onMouseup={handleMouseUp}
         onMouseLeave={handleMouseUp}
+        onContextMenu={(e) => e.evt.preventDefault()}
         className="cursor-crosshair"
+        style={{ cursor }}
       >
         <Layer>
           {image && (
@@ -188,6 +297,7 @@ export function RoiStage({
           {rois.map((roi) => {
             const rect = stageFromNorm(roi.norm, stageW, stageH);
             const isSelected = roi.id === selectedId;
+            const stroke = roi.color || "#22c55e";
             return (
               <KonvaRect
                 key={roi.id}
@@ -196,14 +306,14 @@ export function RoiStage({
                 y={rect.y}
                 width={rect.width}
                 height={rect.height}
-                stroke={isSelected ? "#38bdf8" : "#22c55e"}
-                strokeWidth={isSelected ? 2 : 1.5}
-                fill="rgba(34, 197, 94, 0.12)"
-                draggable
+                stroke={stroke}
+                strokeWidth={isSelected ? 2.5 : 1.5}
+                fill={hexWithAlpha(stroke, 0.12)}
+                draggable={!spaceDown && !panning}
                 onClick={() => onSelect(roi.id)}
                 onTap={() => onSelect(roi.id)}
-                onDragEnd={(e) => {
-                  const node = e.target;
+                onDragEnd={(ev) => {
+                  const node = ev.target;
                   const norm = normFromStage(
                     node.x(),
                     node.y(),
@@ -216,11 +326,18 @@ export function RoiStage({
                   node.scaleY(1);
                   onUpdateRoi(roi.id, { norm });
                 }}
-                onTransformEnd={(e) => {
-                  const node = e.target;
+                onTransformEnd={(ev) => {
+                  const node = ev.target;
                   const w = node.width() * node.scaleX();
                   const h = node.height() * node.scaleY();
-                  const norm = normFromStage(node.x(), node.y(), w, h, stageW, stageH);
+                  const norm = normFromStage(
+                    node.x(),
+                    node.y(),
+                    w,
+                    h,
+                    stageW,
+                    stageH,
+                  );
                   node.scaleX(1);
                   node.scaleY(1);
                   node.width(w);

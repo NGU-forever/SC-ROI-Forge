@@ -23,5 +23,35 @@ describe("buildExportPack", () => {
       w: 230,
       h: 86,
     });
+    expect(pack.rois[0].color).toBe("#22c55e");
+  });
+
+  it("passes through color and defaults when missing", () => {
+    const withColor = buildExportPack({
+      aspect_ratio: "16:9",
+      rois: [
+        {
+          id: "a",
+          label: "x",
+          category: "ui",
+          color: "#38BDF8",
+          norm: { x: 0, y: 0, w: 0.1, h: 0.1 },
+        },
+      ],
+    });
+    expect(withColor.rois[0].color).toBe("#38bdf8");
+
+    const noColor = buildExportPack({
+      aspect_ratio: "16:9",
+      rois: [
+        {
+          id: "b",
+          label: "y",
+          category: "ui",
+          norm: { x: 0, y: 0, w: 0.1, h: 0.1 },
+        },
+      ],
+    });
+    expect(noColor.rois[0].color).toBe("#22c55e");
   });
 });

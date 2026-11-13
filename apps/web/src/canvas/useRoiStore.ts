@@ -5,6 +5,7 @@ export type Roi = {
   id: string;
   label: string;
   category: string;
+  color: string;
   norm: Rect;
 };
 
@@ -20,7 +21,10 @@ type State = {
   pushRois: (rois: Roi[]) => void;
   addRoi: (roi: Roi) => void;
   updateRoi: (id: string, patch: Partial<Roi>) => void;
-  patchRoiMeta: (id: string, patch: Partial<Pick<Roi, "label" | "category">>) => void;
+  patchRoiMeta: (
+    id: string,
+    patch: Partial<Pick<Roi, "label" | "category" | "color">>,
+  ) => void;
   removeRoi: (id: string) => void;
   undo: () => void;
   redo: () => void;

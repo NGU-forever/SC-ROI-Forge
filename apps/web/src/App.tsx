@@ -4,6 +4,7 @@ import { RoiStage } from "@/canvas/RoiStage";
 import { useRoiStore } from "@/canvas/useRoiStore";
 import { downloadPack } from "@/export/downloadPack";
 import { suggestRois } from "@/lib/api";
+import { randomRoiColor } from "@/lib/roiColor";
 
 const PRESET_OPTIONS = [...ASPECT_PRESETS, "custom"] as const;
 const API_KEY_STORAGE = "sc-roi-llm-api-key";
@@ -174,6 +175,7 @@ export default function App() {
         id: r.id,
         label: r.label,
         category: r.category,
+        color: r.color,
         norm: r.norm,
       })),
     );
@@ -254,6 +256,7 @@ export default function App() {
                     id: d.id,
                     label: d.label,
                     category: d.category,
+                    color: randomRoiColor(),
                     norm: d.norm,
                   })),
                 );
@@ -381,6 +384,17 @@ export default function App() {
                   }
                 />
               </label>
+              <label className="flex flex-col gap-1">
+                Color
+                <input
+                  type="color"
+                  className="h-9 w-full cursor-pointer rounded border border-slate-600 bg-slate-950"
+                  value={selected.color}
+                  onChange={(e) =>
+                    patchRoiMeta(selected.id, { color: e.target.value })
+                  }
+                />
+              </label>
               <button
                 type="button"
                 className="mt-1 rounded border border-red-800 py-1 text-red-300 hover:bg-red-950/40"
@@ -399,7 +413,9 @@ export default function App() {
           )}
           <div className="mt-auto border-t border-slate-800 pt-3 text-xs text-slate-500">
             <p>{rois.length} ROI(s)</p>
-            <p className="mt-1">Paste image · Ctrl/Cmd+Z undo · Del remove</p>
+            <p className="mt-1">
+              Paste · Wheel zoom · Space/MMB pan · Ctrl/Cmd+Z · Del
+            </p>
           </div>
         </aside>
       </div>
